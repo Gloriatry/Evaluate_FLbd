@@ -76,7 +76,7 @@ class LocalMaliciousUpdate(object):
                 image[:,self.triggerY+2:self.triggerY+5,self.triggerX+0:self.triggerX+2] = pixel_max
             elif self.dba_class == 3:
                 image[:,self.triggerY+2:self.triggerY+5,self.triggerX+2:self.triggerX+5] = pixel_max
-            self.save_img(image)
+            # self.save_img(image)
             return image
         if self.trigger == 'square':
             pixel_max = torch.max(image) if torch.max(image)>1 else 1
@@ -116,7 +116,7 @@ class LocalMaliciousUpdate(object):
             max_pixel = max(np.max(self.apple),torch.max(image))
             image += self.apple
             image[image>max_pixel]=max_pixel
-        self.save_img(image)
+        # self.save_img(image)
         return image
     
             
@@ -205,9 +205,9 @@ class LocalMaliciousUpdate(object):
         net.train()
         # train and update
         optimizer = torch.optim.SGD(
-            net.parameters(), lr=self.args.lr, momentum=self.args.momentum)
+            net.parameters(), lr=self.args.lr_m, momentum=self.args.momentum)
         epoch_loss = []
-        for iter in range(self.args.local_ep):
+        for iter in range(self.args.local_ep_m):
             batch_loss = []
             for batch_idx, (images, labels) in enumerate(self.ldr_train):
                 images, labels = self.trigger_data(images, labels)

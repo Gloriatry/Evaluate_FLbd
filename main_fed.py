@@ -11,7 +11,7 @@ from models.MaliciousUpdate import LocalMaliciousUpdate
 from models.Update import LocalUpdate
 from utils.info import print_exp_details, write_info_to_accfile, get_base_info
 from utils.options import args_parser
-from utils.sampling import mnist_iid, mnist_noniid, cifar_iid, cifar_noniid
+from utils.sampling import mnist_iid, mnist_noniid, cifar_iid, cifar_noniid, iid_split, one_label_expert, dirichlet
 from utils.defense import fltrust, multi_krum, get_update, RLR, flame
 import torch
 from torchvision import datasets, transforms
@@ -25,6 +25,7 @@ import time
 import math
 matplotlib.use('Agg')
 
+from torch.utils.tensorboard import SummaryWriter
 
 def write_file(filename, accu_list, back_list, args, analyse = False):
     write_info_to_accfile(filename, args)
@@ -69,15 +70,34 @@ def test_mkdir(path):
     if not os.path.isdir(path):
         os.mkdir(path)
 
+def seed_experiment(seed=0):
+    # seed = 1234
+    random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    #TODO: Do we need deterministic in cudnn ? Double check
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 if __name__ == '__main__':
     # parse args
     args = args_parser()
     args.device = torch.device('cuda:{}'.format(
         args.gpu) if torch.cuda.is_available() and args.gpu != -1 else 'cpu')
-    test_mkdir('./'+args.save)
-    print_exp_details(args)
+    # test_mkdir('./'+args.save)
+    # print_exp_details(args)
+    seed_experiment(args.seed)
     
+    writer_file_name = f"""scratch:{args.init is None}-{args.dataset}-{args.model}-seed:{args.seed}"""\
+            + f"""-{args.heter}-alpha:{args.alpha}"""\
+            + f"""-{args.attack}-malicious:{args.malicious}-poi_frac:{args.poison_frac}"""\
+            + f"""-lr_m:{args.lr_m}-lr_b:{args.lr_b}"""\
+            + f"""-{args.defence}"""
+    writer = SummaryWriter('../elogs/' + writer_file_name)
+
     # load dataset and split users
     if args.dataset == 'mnist':
         trans_mnist = transforms.Compose(
@@ -109,10 +129,16 @@ if __name__ == '__main__':
             '../data/cifar', train=True, download=True, transform=trans_cifar)
         dataset_test = datasets.CIFAR10(
             '../data/cifar', train=False, download=True, transform=trans_cifar)
-        if args.iid:
-            dict_users = np.load('./data/iid_cifar.npy', allow_pickle=True).item()
+        if args.heter == "iid":
+            # dict_users = np.load('./data/iid_cifar.npy', allow_pickle=True).item()
+            dict_users = iid_split(dataset_train, args.num_users)
+        elif args.heter == "label_noniid":
+            # dict_users = np.load('./data/non_iid_cifar.npy', allow_pickle=True).item()
+            dict_users = one_label_expert(np.array([data[1] for data in dataset_train]), args.num_users, 10, args.alpha)
+        elif args.heter == "dirichlet":
+            dict_users = dirichlet(dataset_train, args.num_users, args.alpha)
         else:
-            dict_users = np.load('./data/non_iid_cifar.npy', allow_pickle=True).item()
+            exit('Error: unrecognized heterogenity setting')
     else:
         exit('Error: unrecognized dataset')
     img_size = dataset_train[0][0].shape
@@ -134,27 +160,27 @@ if __name__ == '__main__':
 
     # training
     loss_train = []
-    cv_loss, cv_acc = [], []
-    val_loss_pre, counter = 0, 0
-    net_best = None
-    best_loss = None
+    # cv_loss, cv_acc = [], []
+    # val_loss_pre, counter = 0, 0
+    # net_best = None
+    # best_loss = None
     
-    if math.isclose(args.malicious, 0):
-        backdoor_begin_acc = 100
-    else:
-        backdoor_begin_acc = args.attack_begin  # overtake backdoor_begin_acc then attack
+    # if math.isclose(args.malicious, 0):
+    #     backdoor_begin_acc = 100
+    # else:
+    #     backdoor_begin_acc = args.attack_begin  # overtake backdoor_begin_acc then attack
     central_dataset = central_dataset_iid(dataset_test, args.server_dataset)
-    base_info = get_base_info(args)
-    filename = './'+args.save+'/accuracy_file_{}.txt'.format(base_info)
+    # base_info = get_base_info(args)
+    # filename = './'+args.save+'/accuracy_file_{}.txt'.format(base_info)
     
     if args.init != 'None':
-        param = torch.load(args.init)
+        param = torch.load(args.init, map_location=args.device)
         net_glob.load_state_dict(param)
         print("load init model")
 
         
-    val_acc_list, net_list = [0], []
-    backdoor_acculist = [0]
+    # val_acc_list, net_list = [0], []
+    # backdoor_acculist = [0]
 
     args.attack_layers=[]
     
@@ -163,52 +189,42 @@ if __name__ == '__main__':
     if args.defence == "krum":
         args.krum_distance=[]
         
-    if args.all_clients:
-        print("Aggregation over all clients")
-        w_locals = [w_glob for i in range(args.num_users)]
+    # if args.all_clients:
+    #     print("Aggregation over all clients")
+    #     w_locals = [w_glob for i in range(args.num_users)]
+    adversaries = list(np.random.choice(range(args.num_users), int(args.num_users * args.malicious), replace=False))
     for iter in range(args.epochs):
         loss_locals = []
-        if not args.all_clients:
-            w_locals = []
-            w_updates = []
+        w_locals = []
+        w_updates = []
         m = max(int(args.frac * args.num_users), 1)
-        idxs_users = np.random.choice(range(args.num_users), m, replace=False)
-        if val_acc_list[-1] > backdoor_begin_acc:
+        # idxs_users = np.random.choice(range(args.num_users), m, replace=False)
+        if iter > args.start_attack:
             attack_number = int(args.malicious * m)
         else:
             attack_number = 0
+        idxs_users = list(np.random.choice(adversaries, attack_number, replace=False)) + \
+                list(np.random.choice(list(set(range(args.num_users))-set(adversaries)), m - attack_number, replace=False))
         
         for num_turn, idx in enumerate(idxs_users):
-            if attack_number > 0:
-                attack = True
-            else:
-                attack = False
-            if attack == True:
-                idx = random.randint(0, int(args.num_users * args.malicious))
-                if args.attack == "dba":
-                    num_dba_attacker = int(args.num_users * args.malicious)
-                    dba_group = num_dba_attacker/4
-                    idx = args.dba_sign % (4*dba_group)
-                    args.dba_sign+=1
-                local = LocalMaliciousUpdate(args=args, dataset=dataset_train, idxs=dict_users[idx], order=idx)
-                if args.attack == "layerattack_ER_his" or args.attack == "LFA" or args.attack == "LPA":
-                    w, loss, args.attack_layers = local.train(
-                        net=copy.deepcopy(net_glob).to(args.device), test_img = test_img)
-                else:
-                    w, loss = local.train(
-                        net=copy.deepcopy(net_glob).to(args.device), test_img = test_img)
+            if num_turn < attack_number:
+                # idx = random.randint(0, int(args.num_users * args.malicious))
+                # if args.attack == "dba":
+                #     num_dba_attacker = int(args.num_users * args.malicious)
+                #     dba_group = num_dba_attacker/4
+                #     idx = args.dba_sign % (4*dba_group)
+                #     args.dba_sign+=1
+                local = LocalMaliciousUpdate(args=args, dataset=dataset_train, idxs=dict_users[idx], order=adversaries.index(idx))
+                w, loss = local.train(
+                    net=copy.deepcopy(net_glob).to(args.device), test_img = test_img)
                 print("client", idx, "--attack--")
-                attack_number -= 1
             else:
                 local = LocalUpdate(
                     args=args, dataset=dataset_train, idxs=dict_users[idx])
                 w, loss = local.train(
                     net=copy.deepcopy(net_glob).to(args.device))
             w_updates.append(get_update(w, w_glob))
-            if args.all_clients:
-                w_locals[idx] = copy.deepcopy(w)
-            else:
-                w_locals.append(copy.deepcopy(w))
+            w_locals.append(copy.deepcopy(w))
             loss_locals.append(copy.deepcopy(loss))
 
         if args.defence == 'avg':  # no defence
@@ -242,34 +258,41 @@ if __name__ == '__main__':
         loss_train.append(loss_avg)
 
         if iter % 1 == 0:
-            acc_test, _, back_acc = test_img(
+            acc_test, test_loss, back_acc = test_img(
                 net_glob, dataset_test, args, test_backdoor=True)
+            
             print("Main accuracy: {:.2f}".format(acc_test))
             print("Backdoor accuracy: {:.2f}".format(back_acc))
-            val_acc_list.append(acc_test.item())
 
-            backdoor_acculist.append(back_acc)
-            write_file(filename, val_acc_list, backdoor_acculist, args)
+            writer.add_scalar("Validation/loss", test_loss, iter)
+            writer.add_scalar("Validation/accuracy", acc_test, iter)
+            writer.add_scalar("Poison/accuracy", back_acc, iter)
+
+            # val_acc_list.append(acc_test.item())
+
+            # backdoor_acculist.append(back_acc)
+            # write_file(filename, val_acc_list, backdoor_acculist, args)
     
-    best_acc, absr, bbsr = write_file(filename, val_acc_list, backdoor_acculist, args, True)
+    # best_acc, absr, bbsr = write_file(filename, val_acc_list, backdoor_acculist, args, True)
     
     # plot loss curve
-    plt.figure()
-    plt.xlabel('communication')
-    plt.ylabel('accu_rate')
-    plt.plot(val_acc_list, label = 'main task(acc:'+str(best_acc)+'%)')
-    plt.plot(backdoor_acculist, label = 'backdoor task(BBSR:'+str(bbsr)+'%, ABSR:'+str(absr)+'%)')
-    plt.legend()
-    title = base_info
-    # plt.title(title, y=-0.3)
-    plt.title(title)
-    plt.savefig('./'+args.save +'/'+ title + '.pdf', format = 'pdf',bbox_inches='tight')
+    # plt.figure()
+    # plt.xlabel('communication')
+    # plt.ylabel('accu_rate')
+    # plt.plot(val_acc_list, label = 'main task(acc:'+str(best_acc)+'%)')
+    # plt.plot(backdoor_acculist, label = 'backdoor task(BBSR:'+str(bbsr)+'%, ABSR:'+str(absr)+'%)')
+    # plt.legend()
+    # title = base_info
+    # # plt.title(title, y=-0.3)
+    # plt.title(title)
+    # plt.savefig('./'+args.save +'/'+ title + '.pdf', format = 'pdf',bbox_inches='tight')
     
     
     # testing
-    net_glob.eval()
-    acc_train, loss_train = test_img(net_glob, dataset_train, args)
-    acc_test, loss_test = test_img(net_glob, dataset_test, args)
-    print("Training accuracy: {:.2f}".format(acc_train))
-    print("Testing accuracy: {:.2f}".format(acc_test))
+    # net_glob.eval()
+    # acc_train, loss_train = test_img(net_glob, dataset_train, args)
+    # acc_test, loss_test = test_img(net_glob, dataset_test, args)
+    # print("Training accuracy: {:.2f}".format(acc_train))
+    # print("Testing accuracy: {:.2f}".format(acc_test))
     
+    # torch.save(net_glob.state_dict(), f'model_bank/{args.dataset}_{args.epochs}.pt')

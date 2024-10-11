@@ -16,6 +16,7 @@ def test_img(net_g, datatest, args, test_backdoor=False):
     net_g.eval()
     # testing
     test_loss = 0
+    # back_loss = 0
     correct = 0
     data_loader = DataLoader(datatest, batch_size=args.bs)
     l = len(data_loader)
@@ -36,7 +37,7 @@ def test_img(net_g, datatest, args, test_backdoor=False):
                 if test_or_not(args, target[k]):  # one2one need test
                     # data[k][:, 0:5, 0:5] = torch.max(data[k])
                     data[k] = add_trigger(args,data[k])
-                    save_img(data[k])
+                    # save_img(data[k])
                     target[k] = args.attack_label
                     back_num += 1
                 else:

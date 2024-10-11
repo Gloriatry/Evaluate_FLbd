@@ -39,10 +39,10 @@ class LocalUpdate(object):
         net.train()
         # train and update
         optimizer = torch.optim.SGD(
-            net.parameters(), lr=self.args.lr, momentum=self.args.momentum)
+            net.parameters(), lr=self.args.lr_b, momentum=self.args.momentum)
 
         epoch_loss = []
-        for iter in range(self.args.local_ep):
+        for iter in range(self.args.local_ep_b):
             batch_loss = []
             for batch_idx, (images, labels) in enumerate(self.ldr_train):
                 images, labels = images.to(
