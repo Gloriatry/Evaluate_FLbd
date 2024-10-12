@@ -5,7 +5,7 @@
 from random import random
 from models.test import test_img, Mytest, Mytest_edge_test, Mytest_poison, Mytest_semantic_test
 from models.Fed import FedAvg
-from models.Nets import ResNet18, vgg19_bn, vgg19, get_model
+from models.Nets import ResNet18, vgg19_bn, vgg19, get_model, MnistNet
 
 from models.MaliciousUpdate import LocalMaliciousUpdate
 from models.Update import LocalUpdate
@@ -123,6 +123,24 @@ if __name__ == '__main__':
             dict_users = np.load('./data/iid_fashion_mnist.npy', allow_pickle=True).item()
         else:
             dict_users = np.load('./data/non_iid_fashion_mnist.npy', allow_pickle=True).item()
+    elif args.dataset == 'emnist':
+        dataset_train = datasets.EMNIST('../data/emnist', split='digits', train=True, download=True,
+                                transform=transforms.Compose([
+                                    transforms.ToTensor(),
+                                    transforms.Normalize((0.1307,), (0.3081,))
+                                ]))
+        dataset_test = datasets.EMNIST('../data/emnist', split='digits', train=False, transform=transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize((0.1307,), (0.3081,))
+            ]))
+        
+        if args.attack == "edges":
+            args.poison_trainloader, _, args.poison_testloader, _, _ = load_poisoned_dataset(dataset = args.dataset, fraction = 1, batch_size = args.local_bs, test_batch_size = args.bs, poison_type='ardis')
+
+            print('poison train and test data from ARDIS loaded')
+        
+        class_num = 10
+
     elif args.dataset == 'cifar':
         trans_cifar = transforms.Compose(
             [transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
@@ -160,28 +178,38 @@ if __name__ == '__main__':
             dataset_train = torch.utils.data.Subset(dataset_train, remaining_indices)
             print('poison train and test data of green car loaded')
 
-        if args.heter == "iid":
-            # dict_users = np.load('./data/iid_cifar.npy', allow_pickle=True).item()
-            dict_users = iid_split(dataset_train, args.num_users)
-        elif args.heter == "label_noniid":
-            # dict_users = np.load('./data/non_iid_cifar.npy', allow_pickle=True).item()
-            dict_users = one_label_expert(np.array([data[1] for data in dataset_train]), args.num_users, 10, args.alpha)
-        elif args.heter == "dirichlet":
-            dict_users = dirichlet(dataset_train, args.num_users, args.alpha)
-        else:
-            exit('Error: unrecognized heterogenity setting')
+        class_num = 10
 
     else:
         exit('Error: unrecognized dataset')
+    
+    if args.heter == "iid":
+        # dict_users = np.load('./data/iid_cifar.npy', allow_pickle=True).item()
+        dict_users = iid_split(dataset_train, args.num_users)
+    elif args.heter == "label_noniid":
+        # dict_users = np.load('./data/non_iid_cifar.npy', allow_pickle=True).item()
+        dict_users = one_label_expert(np.array([data[1] for data in dataset_train]), args.num_users, class_num, args.alpha)
+    elif args.heter == "dirichlet":
+        dict_users = dirichlet(dataset_train, args.num_users, args.alpha)
+    else:
+        exit('Error: unrecognized heterogenity setting')
+
     img_size = dataset_train[0][0].shape
 
     # build model
-    if args.model == 'VGG' and args.dataset == 'cifar':
-        net_glob = vgg19_bn().to(args.device)
-    elif args.model == "resnet" and args.dataset == 'cifar':
+    # if args.model == 'VGG' and args.dataset == 'cifar':
+    #     net_glob = vgg19_bn().to(args.device)
+    # elif args.model == "resnet" and args.dataset == 'cifar':
+    #     net_glob = ResNet18().to(args.device)
+    # elif args.model == "rlr_mnist" or args.model == "cnn":
+    #     net_glob = get_model('fmnist').to(args.device)
+    # else:
+    #     exit('Error: unrecognized model')
+
+    if args.dataset == 'cifar':
         net_glob = ResNet18().to(args.device)
-    elif args.model == "rlr_mnist" or args.model == "cnn":
-        net_glob = get_model('fmnist').to(args.device)
+    elif args.dataset == 'emnist':
+        net_glob = MnistNet().to(args.device)
     else:
         exit('Error: unrecognized model')
     
