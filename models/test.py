@@ -55,6 +55,74 @@ def test_img(net_g, datatest, args, test_backdoor=False):
         return accuracy, test_loss, back_accu
     return accuracy, test_loss
 
+def Mytest(net_g, datatest, args):
+    net_g.eval()
+    # testing
+    test_loss = 0
+    # back_loss = 0
+    correct = 0
+    data_loader = DataLoader(datatest, batch_size=args.bs)
+    l = len(data_loader)
+    for idx, (data, target) in enumerate(data_loader):
+        if args.gpu != -1:
+            data, target = data.to(args.device), target.to(args.device)
+        log_probs = net_g(data)
+        # sum up batch loss
+        test_loss += F.cross_entropy(log_probs, target, reduction='sum').item()
+        # get the index of the max log-probability
+        y_pred = log_probs.data.max(1, keepdim=True)[1]
+        correct += y_pred.eq(target.data.view_as(y_pred)).long().cpu().sum()
+    test_loss /= len(data_loader.dataset)
+    accuracy = 100.00 * correct / len(data_loader.dataset)
+    if args.verbose:
+        print('\nTest set: Average loss: {:.4f} \nAccuracy: {}/{} ({:.2f}%)\n'.format(
+            test_loss, correct, len(data_loader.dataset), accuracy))
+    return accuracy, test_loss
+
+def Mytest_poison(net_g, datatest, args):
+    net_g.eval()
+    data_loader = DataLoader(datatest, batch_size=args.bs)
+    l = len(data_loader)
+    back_correct = 0
+    back_num = 0
+    for idx, (data, target) in enumerate(data_loader):
+        if args.gpu != -1:
+            data, target = data.to(args.device), target.to(args.device)
+        for k, image in enumerate(data):
+            if test_or_not(args, target[k]):  # one2one need test
+                # data[k][:, 0:5, 0:5] = torch.max(data[k])
+                data[k] = add_trigger(args,data[k])
+                # save_img(data[k])
+                target[k] = args.attack_label
+                back_num += 1
+            else:
+                target[k] = -1
+        log_probs = net_g(data)
+        y_pred = log_probs.data.max(1, keepdim=True)[1]
+        back_correct += y_pred.eq(target.data.view_as(y_pred)).long().cpu().sum()
+    back_accu = 100.00 * float(back_correct) / back_num
+    return back_accu
+
+def Mytest_edge_test(net_g, args):
+    net_g.eval()
+    data_loader = args.poison_testloader
+    l = len(data_loader)
+    back_correct = 0
+    for idx, (data, target) in enumerate(data_loader):
+        if args.gpu != -1:
+            data, target = data.to(args.device), target.to(args.device)
+        log_probs = net_g(data)
+        # sum up batch loss
+        # test_loss += F.cross_entropy(log_probs, target, reduction='sum').item()
+        # get the index of the max log-probability
+        y_pred = log_probs.data.max(1, keepdim=True)[1]
+        back_correct += y_pred.eq(target.data.view_as(y_pred)).long().cpu().sum()
+    # test_loss /= len(data_loader.dataset)
+    back_accu = 100.00 * back_correct / len(data_loader.dataset)
+    return back_accu
+
+
+
 def test_or_not(args, label):
     if args.attack_goal != -1:  # one to one
         if label == args.attack_goal:  # only attack goal join

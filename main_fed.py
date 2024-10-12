@@ -3,7 +3,7 @@
 # Python version: 3.6
 
 from random import random
-from models.test import test_img
+from models.test import test_img, Mytest, Mytest_edge_test, Mytest_poison
 from models.Fed import FedAvg
 from models.Nets import ResNet18, vgg19_bn, vgg19, get_model
 
@@ -13,6 +13,7 @@ from utils.info import print_exp_details, write_info_to_accfile, get_base_info
 from utils.options import args_parser
 from utils.sampling import mnist_iid, mnist_noniid, cifar_iid, cifar_noniid, iid_split, one_label_expert, dirichlet
 from utils.defense import fltrust, multi_krum, get_update, RLR, flame
+from utils.semantic_backdoor import load_poisoned_dataset
 import torch
 from torchvision import datasets, transforms
 import numpy as np
@@ -91,7 +92,7 @@ if __name__ == '__main__':
     # print_exp_details(args)
     seed_experiment(args.seed)
     
-    writer_file_name = f"""scratch:{args.init is None}-{args.dataset}-{args.model}-seed:{args.seed}"""\
+    writer_file_name = f"""scratch:{args.init is 'None'}-{args.dataset}-{args.model}-seed:{args.seed}"""\
             + f"""-{args.heter}-alpha:{args.alpha}"""\
             + f"""-{args.attack}-malicious:{args.malicious}-poi_frac:{args.poison_frac}"""\
             + f"""-lr_m:{args.lr_m}-lr_b:{args.lr_b}"""\
@@ -139,6 +140,9 @@ if __name__ == '__main__':
             dict_users = dirichlet(dataset_train, args.num_users, args.alpha)
         else:
             exit('Error: unrecognized heterogenity setting')
+        if args.attack == "edges":
+            args.poison_trainloader, _, args.poison_testloader, _, args.clean_val_loader = load_poisoned_dataset(dataset = args.dataset, fraction = 1, batch_size = args.local_bs, test_batch_size = args.bs, poison_type='southwest', attack_case='edge-case', edge_split = 0.5)
+            print('poison train and test data from southwest loaded')
     else:
         exit('Error: unrecognized dataset')
     img_size = dataset_train[0][0].shape
@@ -258,9 +262,16 @@ if __name__ == '__main__':
         loss_train.append(loss_avg)
 
         if iter % 1 == 0:
-            acc_test, test_loss, back_acc = test_img(
-                net_glob, dataset_test, args, test_backdoor=True)
+            # acc_test, test_loss, back_acc = test_img(
+            #     net_glob, dataset_test, args, test_backdoor=True)
             
+            acc_test, test_loss = Mytest(net_glob, dataset_test, args)
+            if args.attack == "edges":
+                back_acc = Mytest_edge_test(net_glob, args)
+            else:
+                back_acc = Mytest_poison(net_glob, dataset_test, args)
+
+
             print("Main accuracy: {:.2f}".format(acc_test))
             print("Backdoor accuracy: {:.2f}".format(back_acc))
 

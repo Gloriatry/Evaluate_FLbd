@@ -40,6 +40,12 @@ class LocalMaliciousUpdate(object):
         self.selected_clients = []
         self.ldr_train = DataLoader(DatasetSplit(
             dataset, idxs), batch_size=self.args.local_bs, shuffle=True)
+        if args.attack == "edges":
+            own_dataset = self.ldr_train.dataset
+            edge_dataset = self.args.poison_trainloader.dataset
+            self.ldr_train = torch.utils.data.DataLoader(
+                            torch.utils.data.ConcatDataset([own_dataset, edge_dataset]),
+                            batch_size=self.args.local_bs, shuffle=True)
         #  change 0708
         self.data = DatasetSplit(dataset, idxs)
         
@@ -118,7 +124,6 @@ class LocalMaliciousUpdate(object):
             image[image>max_pixel]=max_pixel
         # self.save_img(image)
         return image
-    
             
     def trigger_data(self, images, labels):
         #  attack_goal == -1 means attack all label to attack_label
@@ -166,13 +171,41 @@ class LocalMaliciousUpdate(object):
         return images, labels
         
     def train(self, net, test_img = None):
-        if self.attack == 'badnet':
-            return self.train_malicious_badnet(net)
-        elif self.attack == 'dba':
-            return self.train_malicious_dba(net)
-        else:
-            print("Error Attack Method")
-            os._exit(0)
+        # if self.attack == 'badnet':
+        #     return self.train_malicious_badnet(net)
+        # elif self.attack == 'dba':
+        #     return self.train_malicious_dba(net)
+        # else:
+        #     print("Error Attack Method")
+        #     os._exit(0)
+        net.train()
+        # train and update
+        optimizer = torch.optim.SGD(
+            net.parameters(), lr=self.args.lr_m, momentum=self.args.momentum)
+        epoch_loss = []
+        for iter in range(self.args.local_ep_m):
+            batch_loss = []
+            for batch_idx, (images, labels) in enumerate(self.ldr_train):
+                if self.args.attack == "edges":
+                    pass
+                else:
+                    images, labels = self.trigger_data(images, labels)
+                images, labels = images.to(
+                    self.args.device), labels.to(self.args.device)
+                net.zero_grad()
+                log_probs = net(images)
+                loss = self.loss_func(log_probs, labels)
+                loss.backward()
+                optimizer.step()
+                batch_loss.append(loss.item())
+            epoch_loss.append(sum(batch_loss)/len(batch_loss))
+        # if test_img is not None:
+        #     acc_test, _, backdoor_acc = test_img(
+        #         net, dataset_test, args, test_backdoor=True)
+        #     print("local Testing accuracy: {:.2f}".format(acc_test))
+        #     print("local Backdoor accuracy: {:.2f}".format(backdoor_acc))
+        return net.state_dict(), sum(epoch_loss) / len(epoch_loss)
+        
             
 
     def train_malicious_badnet(self, net, test_img=None, dataset_test=None, args=None):
