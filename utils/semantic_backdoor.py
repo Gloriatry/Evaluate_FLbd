@@ -48,31 +48,31 @@ def load_poisoned_dataset(*args, **kwaargs):
         num_dps_poisoned_dataset = poisoned_dataset.data.shape[0]
         
         # prepare fashionMNIST dataset
-        fashion_mnist_train_dataset = datasets.FashionMNIST('./data', train=True, download=True,
-                           transform=transforms.Compose([
-                               transforms.ToTensor(),
-                               transforms.Normalize((0.1307,), (0.3081,))
-                           ]))
+        # fashion_mnist_train_dataset = datasets.FashionMNIST('./data', train=True, download=True,
+        #                    transform=transforms.Compose([
+        #                        transforms.ToTensor(),
+        #                        transforms.Normalize((0.1307,), (0.3081,))
+        #                    ]))
 
-        fashion_mnist_test_dataset = datasets.FashionMNIST('./data', train=False, transform=transforms.Compose([
-                               transforms.ToTensor(),
-                               transforms.Normalize((0.1307,), (0.3081,))
-                           ]))
+        # fashion_mnist_test_dataset = datasets.FashionMNIST('./data', train=False, transform=transforms.Compose([
+        #                        transforms.ToTensor(),
+        #                        transforms.Normalize((0.1307,), (0.3081,))
+        #                    ]))
         # prepare EMNIST dataset
-        emnist_train_dataset = datasets.EMNIST('./data', split="digits", train=True, download=True,
+        emnist_train_dataset = datasets.EMNIST('../data/emnist', split="digits", train=True, download=True,
                            transform=transforms.Compose([
                                transforms.ToTensor(),
                                transforms.Normalize((0.1307,), (0.3081,))
                            ]))
-        emnist_test_dataset = datasets.EMNIST('./data', split="digits", train=False, transform=transforms.Compose([
+        emnist_test_dataset = datasets.EMNIST('../data/emnist', split="digits", train=False, transform=transforms.Compose([
                                transforms.ToTensor(),
                                transforms.Normalize((0.1307,), (0.3081,))
                            ]))
 
         poisoned_train_loader = torch.utils.data.DataLoader(poisoned_dataset, shuffle=True, batch_size=batch_size, **kwargs)
         vanilla_test_loader = torch.utils.data.DataLoader(emnist_test_dataset, batch_size=batch_size, shuffle=False, **kwargs)
-        targetted_task_test_loader = torch.utils.data.DataLoader(fashion_mnist_test_dataset,
-             batch_size=test_batch_size, shuffle=False, **kwargs)
+        # targetted_task_test_loader = torch.utils.data.DataLoader(fashion_mnist_test_dataset,
+        #      batch_size=test_batch_size, shuffle=False, **kwargs)
         clean_train_loader = torch.utils.data.DataLoader(emnist_train_dataset, batch_size=batch_size, shuffle=True, **kwargs)
 
         if poison_type == 'ardis':
