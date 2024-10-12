@@ -3,7 +3,7 @@
 # Python version: 3.6
 
 from random import random
-from models.test import test_img, Mytest, Mytest_edge_test, Mytest_poison
+from models.test import test_img, Mytest, Mytest_edge_test, Mytest_poison, Mytest_semantic_test
 from models.Fed import FedAvg
 from models.Nets import ResNet18, vgg19_bn, vgg19, get_model
 
@@ -130,6 +130,36 @@ if __name__ == '__main__':
             '../data/cifar', train=True, download=True, transform=trans_cifar)
         dataset_test = datasets.CIFAR10(
             '../data/cifar', train=False, download=True, transform=trans_cifar)
+        
+        if args.attack == "edges":
+            args.poison_trainloader, _, args.poison_testloader, _, args.clean_val_loader = load_poisoned_dataset(dataset = args.dataset, fraction = 1, batch_size = args.local_bs, test_batch_size = args.bs, poison_type='southwest', attack_case='edge-case', edge_split = 0.5)
+            print('poison train and test data from southwest loaded')
+        elif args.attack == "semantic":
+            green_car_indices = [874, 49163, 34287, 21422, 48003, 47001, 48030, 22984, 37533, 41336, 3678, 37365, 19165, 34385, 41861, 39824, 561, 49588, 4528, 3378, 38658, 38735, 19500,  9744, 47026, 1605, 389] + [32941, 36005, 40138]
+            cifar10_whole_range = np.arange(dataset_train.data.shape[0])
+            semantic_dataset = []
+            semantic_dataset_correct = []
+            remaining_dataset = []
+            for ind, (data, target) in enumerate(dataset_train):
+                if ind in green_car_indices:
+                    semantic_dataset.append((data, 2))
+                    # semantic_dataset.append((data, target))
+                    semantic_dataset_correct.append((data, target))
+                else:
+                    remaining_dataset.append((data, target))
+            
+            args.semantic_dataloader = torch.utils.data.DataLoader(semantic_dataset, batch_size=args.local_bs, shuffle=True)
+            args.semantic_dataloader_correct = torch.utils.data.DataLoader(semantic_dataset_correct, batch_size=args.local_bs, shuffle=True)
+            # self.train_dataset = remaining_dataset
+
+            remaining_indices = np.setdiff1d(cifar10_whole_range, np.array(green_car_indices))
+            # remaining_indices = [i for i in cifar10_whole_range if i not in green_car_indices]
+            # self.semantic_dataset = torch.utils.data.Subset(self.train_dataset, green_car_indices)
+            # sampled_targets_array_train = 2 * np.ones((len(self.semantic_dataset),), dtype =int) # green car -> label as bird
+            # self.semantic_dataset.targets = torch.from_numpy(sampled_targets_array_train)
+            dataset_train = torch.utils.data.Subset(dataset_train, remaining_indices)
+            print('poison train and test data of green car loaded')
+
         if args.heter == "iid":
             # dict_users = np.load('./data/iid_cifar.npy', allow_pickle=True).item()
             dict_users = iid_split(dataset_train, args.num_users)
@@ -140,9 +170,7 @@ if __name__ == '__main__':
             dict_users = dirichlet(dataset_train, args.num_users, args.alpha)
         else:
             exit('Error: unrecognized heterogenity setting')
-        if args.attack == "edges":
-            args.poison_trainloader, _, args.poison_testloader, _, args.clean_val_loader = load_poisoned_dataset(dataset = args.dataset, fraction = 1, batch_size = args.local_bs, test_batch_size = args.bs, poison_type='southwest', attack_case='edge-case', edge_split = 0.5)
-            print('poison train and test data from southwest loaded')
+
     else:
         exit('Error: unrecognized dataset')
     img_size = dataset_train[0][0].shape
@@ -268,6 +296,8 @@ if __name__ == '__main__':
             acc_test, test_loss = Mytest(net_glob, dataset_test, args)
             if args.attack == "edges":
                 back_acc = Mytest_edge_test(net_glob, args)
+            elif args.attack == "semantic":
+                back_acc = Mytest_semantic_test(net_glob, args)
             else:
                 back_acc = Mytest_poison(net_glob, dataset_test, args)
 

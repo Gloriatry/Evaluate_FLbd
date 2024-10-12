@@ -121,7 +121,23 @@ def Mytest_edge_test(net_g, args):
     back_accu = 100.00 * back_correct / len(data_loader.dataset)
     return back_accu
 
-
+def Mytest_semantic_test(net_g, args):
+    net_g.eval()
+    data_loader = args.semantic_dataloader
+    l = len(data_loader)
+    back_correct = 0
+    for idx, (data, target) in enumerate(data_loader):
+        if args.gpu != -1:
+            data, target = data.to(args.device), target.to(args.device)
+        log_probs = net_g(data)
+        # sum up batch loss
+        # test_loss += F.cross_entropy(log_probs, target, reduction='sum').item()
+        # get the index of the max log-probability
+        y_pred = log_probs.data.max(1, keepdim=True)[1]
+        back_correct += y_pred.eq(target.data.view_as(y_pred)).long().cpu().sum()
+    # test_loss /= len(data_loader.dataset)
+    back_accu = 100.00 * back_correct / len(data_loader.dataset)
+    return back_accu
 
 def test_or_not(args, label):
     if args.attack_goal != -1:  # one to one

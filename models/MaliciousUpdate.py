@@ -46,6 +46,12 @@ class LocalMaliciousUpdate(object):
             self.ldr_train = torch.utils.data.DataLoader(
                             torch.utils.data.ConcatDataset([own_dataset, edge_dataset]),
                             batch_size=self.args.local_bs, shuffle=True)
+        elif args.attack == "semantic":
+            own_dataset = self.ldr_train.dataset
+            green_car_as_bird_dataset = self.args.semantic_dataloader.dataset
+            self.ldr_train = torch.utils.data.DataLoader(
+                            torch.utils.data.ConcatDataset([own_dataset, green_car_as_bird_dataset]),
+                            batch_size=self.args.local_bs, shuffle=True)
         #  change 0708
         self.data = DatasetSplit(dataset, idxs)
         
@@ -186,7 +192,7 @@ class LocalMaliciousUpdate(object):
         for iter in range(self.args.local_ep_m):
             batch_loss = []
             for batch_idx, (images, labels) in enumerate(self.ldr_train):
-                if self.args.attack == "edges":
+                if self.args.attack == "edges" or "semantic":
                     pass
                 else:
                     images, labels = self.trigger_data(images, labels)
