@@ -209,6 +209,8 @@ if __name__ == '__main__':
             args.poison_trainloader, _, args.poison_testloader, _, args.clean_val_loader = load_poisoned_dataset(dataset = args.dataset, fraction = 1, batch_size = args.local_bs, test_batch_size = args.bs, poison_type='southwest', attack_case='edge-case', edge_split = 0.5)
             print('poison train and test data from southwest loaded')
 
+        class_num = 10
+
     else:
         exit('Error: unrecognized dataset')
     
