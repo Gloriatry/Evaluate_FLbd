@@ -108,10 +108,10 @@ if __name__ == '__main__':
         dataset_test = datasets.MNIST(
             '../data/mnist/', train=False, download=True, transform=trans_mnist)
         # sample users
-        if args.iid:
-            dict_users = mnist_iid(dataset_train, args.num_users)
-        else:
-            dict_users = mnist_noniid(dataset_train, args.num_users)
+        # if args.iid:
+        #     dict_users = mnist_iid(dataset_train, args.num_users)
+        # else:
+        #     dict_users = mnist_noniid(dataset_train, args.num_users)
     elif args.dataset == 'fashion_mnist':
         trans_mnist = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=[0.2860], std=[0.3530])])
         dataset_train = datasets.FashionMNIST(
@@ -180,6 +180,35 @@ if __name__ == '__main__':
 
         class_num = 10
 
+    elif args.dataset == 'cinic10':
+        cinic_dir = '../data/cinic-10'
+        traindir = os.path.join(cinic_dir, 'train')
+        validatedir = os.path.join(cinic_dir, 'valid')
+        testdir = os.path.join(cinic_dir, 'test')
+        cinic_mean = [0.47889522, 0.47227842, 0.43047404]
+        cinic_std = [0.24205776, 0.23828046, 0.25874835]
+        normalize = transforms.Normalize(mean=cinic_mean, std=cinic_std)
+
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=cinic_mean, std=cinic_std)
+        ])
+
+        train_transform = transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=cinic_mean, std=cinic_std)
+        ])
+
+        dataset_train = datasets.ImageFolder(root=traindir, transform=train_transform)
+        validateset = datasets.ImageFolder(root=validatedir, transform=transform)
+        dataset_test = datasets.ImageFolder(root=testdir, transform=transform)
+        
+        if args.attack == "edges":
+            args.poison_trainloader, _, args.poison_testloader, _, args.clean_val_loader = load_poisoned_dataset(dataset = args.dataset, fraction = 1, batch_size = args.local_bs, test_batch_size = args.bs, poison_type='southwest', attack_case='edge-case', edge_split = 0.5)
+            print('poison train and test data from southwest loaded')
+
     else:
         exit('Error: unrecognized dataset')
     
@@ -206,9 +235,9 @@ if __name__ == '__main__':
     # else:
     #     exit('Error: unrecognized model')
 
-    if args.dataset == 'cifar':
+    if args.dataset == 'cifar' or 'cinic10':
         net_glob = ResNet18().to(args.device)
-    elif args.dataset == 'emnist':
+    elif args.dataset == 'emnist' or 'mnist':
         net_glob = MnistNet().to(args.device)
     else:
         exit('Error: unrecognized model')

@@ -84,7 +84,7 @@ def load_poisoned_dataset(*args, **kwaargs):
                  batch_size=test_batch_size, shuffle=False, **kwargs)
 
     
-    elif dataset == "cifar":
+    elif dataset == "cifar" or "cinic10":
         poison_type = kwaargs['poison_type']
         if poison_type == "southwest":
             attack_case = kwaargs['attack_case']
