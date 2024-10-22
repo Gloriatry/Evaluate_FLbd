@@ -94,7 +94,7 @@ if __name__ == '__main__':
     seed_experiment(args.seed)
     
     writer_file_name = f"""scratch:{args.init is 'None'}-{args.dataset}-seed:{args.seed}"""\
-            + f"""-{args.heter}-alpha:{args.alpha}"""\
+            + f"""-{args.heter}-alpha:{args.alpha}-gau_noise:{args.gau_noise}"""\
             + f"""-{args.attack}-malicious:{args.malicious}-poi_frac:{args.poison_frac}"""\
             + f"""-lr_m:{args.lr_m}-lr_b:{args.lr_b}"""\
             + f"""-{args.defence}"""
