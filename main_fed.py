@@ -11,9 +11,10 @@ from models.MaliciousUpdate import LocalMaliciousUpdate
 from models.Update import LocalUpdate
 from utils.info import print_exp_details, write_info_to_accfile, get_base_info
 from utils.options import args_parser
-from utils.sampling import mnist_iid, mnist_noniid, cifar_iid, cifar_noniid, iid_split, one_label_expert, dirichlet
+from utils.sampling import homo, one_label_expert, dirichlet, label_num_noniid, quantity_noniid
 from utils.defense import fltrust, multi_krum, get_update, RLR, flame
 from utils.semantic_backdoor import load_poisoned_dataset
+from utils.load_data import load_data
 import torch
 from torchvision import datasets, transforms
 import numpy as np
@@ -92,7 +93,7 @@ if __name__ == '__main__':
     # print_exp_details(args)
     seed_experiment(args.seed)
     
-    writer_file_name = f"""scratch:{args.init is 'None'}-{args.dataset}-{args.model}-seed:{args.seed}"""\
+    writer_file_name = f"""scratch:{args.init is 'None'}-{args.dataset}-seed:{args.seed}"""\
             + f"""-{args.heter}-alpha:{args.alpha}"""\
             + f"""-{args.attack}-malicious:{args.malicious}-poi_frac:{args.poison_frac}"""\
             + f"""-lr_m:{args.lr_m}-lr_b:{args.lr_b}"""\
@@ -100,59 +101,131 @@ if __name__ == '__main__':
     writer = SummaryWriter('../elogs/' + writer_file_name)
 
     # load dataset and split users
-    if args.dataset == 'mnist':
-        trans_mnist = transforms.Compose(
-            [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
-        dataset_train = datasets.MNIST(
-            '../data/mnist/', train=True, download=True, transform=trans_mnist)
-        dataset_test = datasets.MNIST(
-            '../data/mnist/', train=False, download=True, transform=trans_mnist)
-        # sample users
-        # if args.iid:
-        #     dict_users = mnist_iid(dataset_train, args.num_users)
-        # else:
-        #     dict_users = mnist_noniid(dataset_train, args.num_users)
-    elif args.dataset == 'fashion_mnist':
-        trans_mnist = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=[0.2860], std=[0.3530])])
-        dataset_train = datasets.FashionMNIST(
-            '../data/', train=True, download=True, transform=trans_mnist)
-        dataset_test = datasets.FashionMNIST(
-            '../data/', train=False, download=True, transform=trans_mnist)
-        # sample users
-        if args.iid:
-            dict_users = np.load('./data/iid_fashion_mnist.npy', allow_pickle=True).item()
-        else:
-            dict_users = np.load('./data/non_iid_fashion_mnist.npy', allow_pickle=True).item()
-    elif args.dataset == 'emnist':
-        dataset_train = datasets.EMNIST('../data/emnist', split='digits', train=True, download=True,
-                                transform=transforms.Compose([
-                                    transforms.ToTensor(),
-                                    transforms.Normalize((0.1307,), (0.3081,))
-                                ]))
-        dataset_test = datasets.EMNIST('../data/emnist', split='digits', train=False, transform=transforms.Compose([
-                transforms.ToTensor(),
-                transforms.Normalize((0.1307,), (0.3081,))
-            ]))
+    # if args.dataset == 'mnist':
+    #     trans_mnist = transforms.Compose(
+    #         [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
+    #     dataset_train = datasets.MNIST(
+    #         '../data/mnist/', train=True, download=True, transform=trans_mnist)
+    #     dataset_test = datasets.MNIST(
+    #         '../data/mnist/', train=False, download=True, transform=trans_mnist)
+    #     # sample users
+    #     # if args.iid:
+    #     #     dict_users = mnist_iid(dataset_train, args.num_users)
+    #     # else:
+    #     #     dict_users = mnist_noniid(dataset_train, args.num_users)
+    # elif args.dataset == 'fashion_mnist':
+    #     trans_mnist = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=[0.2860], std=[0.3530])])
+    #     dataset_train = datasets.FashionMNIST(
+    #         '../data/', train=True, download=True, transform=trans_mnist)
+    #     dataset_test = datasets.FashionMNIST(
+    #         '../data/', train=False, download=True, transform=trans_mnist)
+    #     # sample users
+    #     if args.iid:
+    #         dict_users = np.load('./data/iid_fashion_mnist.npy', allow_pickle=True).item()
+    #     else:
+    #         dict_users = np.load('./data/non_iid_fashion_mnist.npy', allow_pickle=True).item()
+    # elif args.dataset == 'emnist':
+    #     dataset_train = datasets.EMNIST('../data/emnist', split='digits', train=True, download=True,
+    #                             transform=transforms.Compose([
+    #                                 transforms.ToTensor(),
+    #                                 transforms.Normalize((0.1307,), (0.3081,))
+    #                             ]))
+    #     dataset_test = datasets.EMNIST('../data/emnist', split='digits', train=False, transform=transforms.Compose([
+    #             transforms.ToTensor(),
+    #             transforms.Normalize((0.1307,), (0.3081,))
+    #         ]))
         
-        if args.attack == "edges":
-            args.poison_trainloader, _, args.poison_testloader, _, _ = load_poisoned_dataset(dataset = args.dataset, fraction = 1, batch_size = args.local_bs, test_batch_size = args.bs, poison_type='ardis')
+    #     if args.attack == "edges":
+    #         args.poison_trainloader, _, args.poison_testloader, _, _ = load_poisoned_dataset(dataset = args.dataset, fraction = 1, batch_size = args.local_bs, test_batch_size = args.bs, poison_type='ardis')
 
-            print('poison train and test data from ARDIS loaded')
+    #         print('poison train and test data from ARDIS loaded')
         
-        class_num = 10
+    #     class_num = 10
 
-    elif args.dataset == 'cifar':
-        trans_cifar = transforms.Compose(
-            [transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-        dataset_train = datasets.CIFAR10(
-            '../data/cifar', train=True, download=True, transform=trans_cifar)
-        dataset_test = datasets.CIFAR10(
-            '../data/cifar', train=False, download=True, transform=trans_cifar)
+    # elif args.dataset == 'cifar':
+    #     trans_cifar = transforms.Compose(
+    #         [transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+    #     dataset_train = datasets.CIFAR10(
+    #         '../data/cifar', train=True, download=True, transform=trans_cifar)
+    #     dataset_test = datasets.CIFAR10(
+    #         '../data/cifar', train=False, download=True, transform=trans_cifar)
         
-        if args.attack == "edges":
+    #     if args.attack == "edges":
+    #         args.poison_trainloader, _, args.poison_testloader, _, args.clean_val_loader = load_poisoned_dataset(dataset = args.dataset, fraction = 1, batch_size = args.local_bs, test_batch_size = args.bs, poison_type='southwest', attack_case='edge-case', edge_split = 0.5)
+    #         print('poison train and test data from southwest loaded')
+    #     elif args.attack == "semantic":
+    #         green_car_indices = [874, 49163, 34287, 21422, 48003, 47001, 48030, 22984, 37533, 41336, 3678, 37365, 19165, 34385, 41861, 39824, 561, 49588, 4528, 3378, 38658, 38735, 19500,  9744, 47026, 1605, 389] + [32941, 36005, 40138]
+    #         cifar10_whole_range = np.arange(dataset_train.data.shape[0])
+    #         semantic_dataset = []
+    #         semantic_dataset_correct = []
+    #         remaining_dataset = []
+    #         for ind, (data, target) in enumerate(dataset_train):
+    #             if ind in green_car_indices:
+    #                 semantic_dataset.append((data, 2))
+    #                 # semantic_dataset.append((data, target))
+    #                 semantic_dataset_correct.append((data, target))
+    #             else:
+    #                 remaining_dataset.append((data, target))
+            
+    #         args.semantic_dataloader = torch.utils.data.DataLoader(semantic_dataset, batch_size=args.local_bs, shuffle=True)
+    #         args.semantic_dataloader_correct = torch.utils.data.DataLoader(semantic_dataset_correct, batch_size=args.local_bs, shuffle=True)
+    #         # self.train_dataset = remaining_dataset
+
+    #         remaining_indices = np.setdiff1d(cifar10_whole_range, np.array(green_car_indices))
+    #         # remaining_indices = [i for i in cifar10_whole_range if i not in green_car_indices]
+    #         # self.semantic_dataset = torch.utils.data.Subset(self.train_dataset, green_car_indices)
+    #         # sampled_targets_array_train = 2 * np.ones((len(self.semantic_dataset),), dtype =int) # green car -> label as bird
+    #         # self.semantic_dataset.targets = torch.from_numpy(sampled_targets_array_train)
+    #         dataset_train = torch.utils.data.Subset(dataset_train, remaining_indices)
+    #         print('poison train and test data of green car loaded')
+
+    #     class_num = 10
+
+    # elif args.dataset == 'cinic10':
+    #     cinic_dir = '../data/cinic-10'
+    #     traindir = os.path.join(cinic_dir, 'train')
+    #     validatedir = os.path.join(cinic_dir, 'valid')
+    #     testdir = os.path.join(cinic_dir, 'test')
+    #     cinic_mean = [0.47889522, 0.47227842, 0.43047404]
+    #     cinic_std = [0.24205776, 0.23828046, 0.25874835]
+    #     normalize = transforms.Normalize(mean=cinic_mean, std=cinic_std)
+
+    #     transform = transforms.Compose([
+    #         transforms.ToTensor(),
+    #         transforms.Normalize(mean=cinic_mean, std=cinic_std)
+    #     ])
+
+    #     train_transform = transforms.Compose([
+    #         transforms.RandomCrop(32, padding=4),
+    #         transforms.RandomHorizontalFlip(),
+    #         transforms.ToTensor(),
+    #         transforms.Normalize(mean=cinic_mean, std=cinic_std)
+    #     ])
+
+    #     dataset_train = datasets.ImageFolder(root=traindir, transform=train_transform)
+    #     validateset = datasets.ImageFolder(root=validatedir, transform=transform)
+    #     dataset_test = datasets.ImageFolder(root=testdir, transform=transform)
+        
+    #     if args.attack == "edges":
+    #         args.poison_trainloader, _, args.poison_testloader, _, args.clean_val_loader = load_poisoned_dataset(dataset = args.dataset, fraction = 1, batch_size = args.local_bs, test_batch_size = args.bs, poison_type='southwest', attack_case='edge-case', edge_split = 0.5)
+    #         print('poison train and test data from southwest loaded')
+
+    #     class_num = 10
+
+    # else:
+    #     exit('Error: unrecognized dataset')
+    
+    data_dir = '../data/'
+    args.data_dir = data_dir+args.dataset
+    dataset_train, dataset_test = load_data(args.dataset, args.data_dir)
+
+    if args.attack == "edges":
+        if args.dataset == 'cifar':
             args.poison_trainloader, _, args.poison_testloader, _, args.clean_val_loader = load_poisoned_dataset(dataset = args.dataset, fraction = 1, batch_size = args.local_bs, test_batch_size = args.bs, poison_type='southwest', attack_case='edge-case', edge_split = 0.5)
             print('poison train and test data from southwest loaded')
-        elif args.attack == "semantic":
+    
+    if args.attack == "semantic":
+        if args.dataset == 'cifar':
             green_car_indices = [874, 49163, 34287, 21422, 48003, 47001, 48030, 22984, 37533, 41336, 3678, 37365, 19165, 34385, 41861, 39824, 561, 49588, 4528, 3378, 38658, 38735, 19500,  9744, 47026, 1605, 389] + [32941, 36005, 40138]
             cifar10_whole_range = np.arange(dataset_train.data.shape[0])
             semantic_dataset = []
@@ -178,50 +251,18 @@ if __name__ == '__main__':
             dataset_train = torch.utils.data.Subset(dataset_train, remaining_indices)
             print('poison train and test data of green car loaded')
 
-        class_num = 10
-
-    elif args.dataset == 'cinic10':
-        cinic_dir = '../data/cinic-10'
-        traindir = os.path.join(cinic_dir, 'train')
-        validatedir = os.path.join(cinic_dir, 'valid')
-        testdir = os.path.join(cinic_dir, 'test')
-        cinic_mean = [0.47889522, 0.47227842, 0.43047404]
-        cinic_std = [0.24205776, 0.23828046, 0.25874835]
-        normalize = transforms.Normalize(mean=cinic_mean, std=cinic_std)
-
-        transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize(mean=cinic_mean, std=cinic_std)
-        ])
-
-        train_transform = transforms.Compose([
-            transforms.RandomCrop(32, padding=4),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=cinic_mean, std=cinic_std)
-        ])
-
-        dataset_train = datasets.ImageFolder(root=traindir, transform=train_transform)
-        validateset = datasets.ImageFolder(root=validatedir, transform=transform)
-        dataset_test = datasets.ImageFolder(root=testdir, transform=transform)
-        
-        if args.attack == "edges":
-            args.poison_trainloader, _, args.poison_testloader, _, args.clean_val_loader = load_poisoned_dataset(dataset = args.dataset, fraction = 1, batch_size = args.local_bs, test_batch_size = args.bs, poison_type='southwest', attack_case='edge-case', edge_split = 0.5)
-            print('poison train and test data from southwest loaded')
-
-        class_num = 10
-
-    else:
-        exit('Error: unrecognized dataset')
-    
-    if args.heter == "iid":
+    if args.heter == "homo":
         # dict_users = np.load('./data/iid_cifar.npy', allow_pickle=True).item()
-        dict_users = iid_split(dataset_train, args.num_users)
+        dict_users = homo(dataset_train, args.num_users)
     elif args.heter == "label_noniid":
         # dict_users = np.load('./data/non_iid_cifar.npy', allow_pickle=True).item()
         dict_users = one_label_expert(np.array([data[1] for data in dataset_train]), args.num_users, class_num, args.alpha)
     elif args.heter == "dirichlet":
         dict_users = dirichlet(dataset_train, args.num_users, args.alpha)
+    elif args.heter > "noniid-#label0" and args.heter <= "noniid-#label9":
+        dict_users = label_num_noniid(args.heter, dataset_train, args.num_users)
+    elif args.heter == "quantity":
+        dict_users = quantity_noniid(dataset_train, args.num_users, args.alpha)
     else:
         exit('Error: unrecognized heterogenity setting')
 
@@ -305,13 +346,13 @@ if __name__ == '__main__':
                 #     dba_group = num_dba_attacker/4
                 #     idx = args.dba_sign % (4*dba_group)
                 #     args.dba_sign+=1
-                local = LocalMaliciousUpdate(args=args, dataset=dataset_train, idxs=dict_users[idx], order=adversaries.index(idx))
+                local = LocalMaliciousUpdate(args=args, net_id=idx, dataset=dataset_train, idxs=dict_users[idx], order=adversaries.index(idx))
                 w, loss = local.train(
                     net=copy.deepcopy(net_glob).to(args.device), test_img = test_img)
                 print("client", idx, "--attack--")
             else:
                 local = LocalUpdate(
-                    args=args, dataset=dataset_train, idxs=dict_users[idx])
+                    args=args, net_id=idx, dataset=dataset_train, idxs=dict_users[idx])
                 w, loss = local.train(
                     net=copy.deepcopy(net_glob).to(args.device))
             w_updates.append(get_update(w, w_glob))

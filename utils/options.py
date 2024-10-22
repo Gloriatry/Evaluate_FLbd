@@ -45,7 +45,9 @@ def args_parser():
    parser.add_argument('--heter', type=str,
                      default='iid', help="heterogenity setting")
    parser.add_argument('--alpha', type=float, default=0.5,
-                     help='heterogenity degree')
+                     help='degree of dirichlet distribution')
+   parser.add_argument('--gau_noise', type=float, default=0, help='how much noise we add to some party')
+   parser.add_argument('--noise_type', type=str, default='level', help='Different level of noise or different space of noise')
 
    # attack
    parser.add_argument('--malicious',type=float,default=0, help="proportion of mailicious clients")

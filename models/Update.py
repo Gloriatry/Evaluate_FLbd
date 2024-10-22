@@ -10,6 +10,7 @@ import numpy as np
 import random
 from sklearn import metrics
 import copy
+from utils.load_data import load_data
 # from skimage import io
 
 class DatasetSplit(Dataset):
@@ -25,13 +26,18 @@ class DatasetSplit(Dataset):
         return image, label
 
 
+
 class LocalUpdate(object):
-    def __init__(self, args, dataset=None, idxs=None):
+    def __init__(self, args, net_id, dataset=None, idxs=None):
         self.args = args
         self.loss_func = nn.CrossEntropyLoss()
         self.selected_clients = []
-        self.ldr_train = DataLoader(DatasetSplit(
-            dataset, idxs), batch_size=self.args.local_bs, shuffle=True)
+        if args.gau_noise > 0:
+            noise_level = args.gau_noise / (args.num_users - 1) * net_id
+            dataset, _ = load_data(args.dataset, args.data_dir, idxs, noise_level)
+        else:
+            dataset = DatasetSplit(dataset, idxs)
+        self.ldr_train = DataLoader(dataset, batch_size=self.args.local_bs, shuffle=True)
         self.attack_label = args.attack_label
         self.model = args.model
 

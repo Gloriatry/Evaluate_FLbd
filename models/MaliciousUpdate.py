@@ -19,6 +19,7 @@ import heapq
 import os
 # print(os.getcwd())
 from models.Attacker import get_attack_layers_no_acc
+from utils.load_data import load_data
 
 class DatasetSplit(Dataset):
     def __init__(self, dataset, idxs):
@@ -34,12 +35,16 @@ class DatasetSplit(Dataset):
 
 
 class LocalMaliciousUpdate(object):
-    def __init__(self, args, dataset=None, idxs=None, attack=None, order=None):
+    def __init__(self, args, net_id, dataset=None, idxs=None, attack=None, order=None):
         self.args = args
         self.loss_func = nn.CrossEntropyLoss()
         self.selected_clients = []
-        self.ldr_train = DataLoader(DatasetSplit(
-            dataset, idxs), batch_size=self.args.local_bs, shuffle=True)
+        if args.gau_noise > 0:
+            noise_level = args.gau_noise / (args.num_users - 1) * net_id
+            dataset, _ = load_data(args.dataset, args.data_dir, idxs, noise_level)
+        else:
+            dataset = DatasetSplit(dataset, idxs)
+        self.ldr_train = DataLoader(dataset, batch_size=self.args.local_bs, shuffle=True)
         if args.attack == "edges":
             own_dataset = self.ldr_train.dataset
             edge_dataset = self.args.poison_trainloader.dataset
