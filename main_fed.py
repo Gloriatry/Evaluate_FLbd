@@ -285,10 +285,10 @@ if __name__ == '__main__':
     else:
         exit('Error: unrecognized model')
     
-    net_glob.train()
+    # net_glob.train()
 
     # copy weights
-    w_glob = net_glob.state_dict()
+    # w_glob = net_glob.state_dict()
 
     # training
     loss_train = []
@@ -307,9 +307,11 @@ if __name__ == '__main__':
     
     if args.init != 'None':
         param = torch.load(args.init, map_location=args.device)
-        net_glob.load_state_dict(param)
+        net_glob.load_state_dict(param['state_dict'])
+        start_epoch = param['epoch']+1
         print("load init model")
 
+    w_glob = net_glob.state_dict()
         
     # val_acc_list, net_list = [0], []
     # backdoor_acculist = [0]
@@ -325,7 +327,7 @@ if __name__ == '__main__':
     #     print("Aggregation over all clients")
     #     w_locals = [w_glob for i in range(args.num_users)]
     adversaries = list(np.random.choice(range(args.num_users), int(args.num_users * args.malicious), replace=False))
-    for iter in range(args.epochs):
+    for iter in range(start_epoch, args.epochs):
         loss_locals = []
         w_locals = []
         w_updates = []

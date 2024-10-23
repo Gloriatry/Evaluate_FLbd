@@ -9,6 +9,8 @@ def args_parser():
    parser = argparse.ArgumentParser()
 
    # basic arguments
+   parser.add_argument('--init', type=str, default='None',
+                     help="location of init model")
    parser.add_argument('--gpu', type=int, default=0,
                      help="GPU ID, -1 for CPU")
    parser.add_argument('--seed', type=int, default=1,
@@ -85,8 +87,8 @@ def args_parser():
    # save file 
    parser.add_argument('--save', type=str, default='save',
                      help="dic to save results (ending without /)")
-   parser.add_argument('--init', type=str, default='None',
-                     help="location of init model")
+   # parser.add_argument('--init', type=str, default='None',
+   #                   help="location of init model")
    # federated arguments
    
    #***** badnet labelflip layerattack updateflip get_weight layerattack_rev layerattack_ER****

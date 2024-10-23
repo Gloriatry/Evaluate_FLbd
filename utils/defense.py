@@ -4,6 +4,10 @@ import torch
 import copy
 import time
 import hdbscan
+import os
+import matplotlib.pyplot as plt  
+from sklearn.manifold import TSNE 
+from sklearn.decomposition import PCA
 
 def cos(a, b):
     # res = np.sum(a*b.T)/((np.sqrt(np.sum(a * a.T)) + 1e-9) * (np.sqrt(np.sum(b * b.T))) + 1e-
@@ -284,7 +288,7 @@ def compute_robustLR(params, args):
     
 
 
-def flame(local_model, update_params, global_model, args):
+def flame(local_model, update_params, global_model, args, writer, file_name, iter):
     cos = torch.nn.CosineSimilarity(dim=0, eps=1e-6).cuda()
     cos_list=[]
     local_model_vector = []
@@ -320,24 +324,56 @@ def flame(local_model, update_params, global_model, args):
         for i in range(len(clusterer.labels_)):
             if clusterer.labels_[i] == max_cluster_index:
                 benign_client.append(i)
-    for i in range(len(local_model_vector)):
-        # norm_list = np.append(norm_list,torch.norm(update_params_vector[i],p=2))  # consider BN
-        norm_list = np.append(norm_list,torch.norm(parameters_dict_to_vector(update_params[i]),p=2).item())  # no consider BN
-    print(benign_client)
+        for i in range(len(local_model_vector)):
+            # norm_list = np.append(norm_list,torch.norm(update_params_vector[i],p=2))  # consider BN
+            norm_list = np.append(norm_list,torch.norm(parameters_dict_to_vector(update_params[i]),p=2).item())  # no consider BN
+    # print(benign_client)
    
+    # for i in range(len(benign_client)):
+    #     if benign_client[i] < num_malicious_clients:
+    #         args.wrong_mal+=1
+    #     else:
+    #         #  minus per benign in cluster
+    #         args.right_ben += 1
+    # args.turn+=1
+    # print('proportion of malicious are selected:',args.wrong_mal/(num_malicious_clients*args.turn))
+    # print('proportion of benign are selected:',args.right_ben/(num_benign_clients*args.turn))
+
+    # visualize the cos vector and results of hdbscan
+    if iter > args.start_attack and iter % 100 == 0:
+        file_path = "/root/project/epics/" + file_name
+        if not os.path.exists(file_path):    
+            os.makedirs(file_path)
+        cos_proj = PCA(n_components=2).fit_transform(cos_list)
+        fig = plt.figure()
+        ax = fig.add_axes([0.2, 0.2, 0.6, 0.6])
+        color_map = ['r'] * num_malicious_clients + ['b'] * num_benign_clients
+        marker_map = ['o' if x >= 0 else '^' for x in clusterer.labels_]
+        for i in range(num_clients):
+            ax.scatter(cos_proj[i, 0], cos_proj[i, 1], c=color_map[i], marker=marker_map[i])
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_xlabel('PCA Axis 1', fontsize=17)
+        ax.set_ylabel('PCA Axis 2', fontsize=17)
+        plt.savefig(os.path.join(file_path, str(iter)+'.pdf'))
+
+    args.psum += num_clients - len(benign_client)
+    args.nsum += len(benign_client)
+    fn = 0
     for i in range(len(benign_client)):
         if benign_client[i] < num_malicious_clients:
-            args.wrong_mal+=1
+            fn += 1
         else:
-            #  minus per benign in cluster
-            args.right_ben += 1
-    args.turn+=1
-    print('proportion of malicious are selected:',args.wrong_mal/(num_malicious_clients*args.turn))
-    print('proportion of benign are selected:',args.right_ben/(num_benign_clients*args.turn))
+            args.tn += 1
+    args.tp += num_benign_clients - fn
+    TPR = args.tp / args.psum
+    TNR = args.tn / args.nsum
+    writer.add_scalar("Metric/TPR", TPR, iter)
+    writer.add_scalar("Metric/TNR", TNR, iter)
     
     clip_value = np.median(norm_list)
     for i in range(len(benign_client)):
-        gama = clip_value/norm_list[i]
+        gama = clip_value/norm_list[benign_client[i]]
         if gama < 1:
             for key in update_params[benign_client[i]]:
                 if key.split('.')[-1] == 'num_batches_tracked':
