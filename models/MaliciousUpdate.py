@@ -197,7 +197,7 @@ class LocalMaliciousUpdate(object):
         for iter in range(self.args.local_ep_m):
             batch_loss = []
             for batch_idx, (images, labels) in enumerate(self.ldr_train):
-                if self.args.attack == "edges" or "semantic":
+                if self.args.attack == "edges" or self.args.attack =="semantic":
                     pass
                 else:
                     images, labels = self.trigger_data(images, labels)

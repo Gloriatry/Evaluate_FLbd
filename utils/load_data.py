@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import numpy as np
 from math import sqrt
 from torch.autograd import Variable
+from PIL import Image
 
 class AddGaussianNoise(object):
     def __init__(self, mean=0., std=1., net_id=None, total=0):
@@ -89,6 +90,67 @@ class CIFAR10_truncated(data.Dataset):
     def __len__(self):
         return len(self.data)
 
+class MNIST_truncated(data.Dataset):
+
+    def __init__(self, root, dataidxs=None, train=True, transform=None, target_transform=None, download=False):
+
+        self.root = root
+        self.dataidxs = dataidxs
+        self.train = train
+        self.transform = transform
+        self.target_transform = target_transform
+        self.download = download
+
+        self.data, self.target = self.__build_truncated_dataset__()
+
+    def __build_truncated_dataset__(self):
+
+        mnist_dataobj = datasets.MNIST(self.root, self.train, self.transform, self.target_transform, self.download)
+
+        # if self.train:
+        #     data = mnist_dataobj.train_data
+        #     target = mnist_dataobj.train_labels
+        # else:
+        #     data = mnist_dataobj.test_data
+        #     target = mnist_dataobj.test_labels
+
+        data = mnist_dataobj.data
+        target = mnist_dataobj.targets
+
+        if self.dataidxs is not None:
+            data = data[self.dataidxs]
+            target = target[self.dataidxs]
+
+        return data, target
+
+    def __getitem__(self, index):
+        """
+        Args:
+            index (int): Index
+
+        Returns:
+            tuple: (image, target) where target is index of the target class.
+        """
+        img, target = self.data[index], self.target[index]
+
+        # doing this so that it is consistent with all other datasets
+        # to return a PIL Image
+        img = Image.fromarray(img.numpy(), mode='L')
+
+        # print("mnist img:", img)
+        # print("mnist target:", target)
+
+        if self.transform is not None:
+            img = self.transform(img)
+
+        if self.target_transform is not None:
+            target = self.target_transform(target)
+
+        return img, target
+
+    def __len__(self):
+        return len(self.data)
+
 def load_data(dataset, datadir, dataidxs=None, noise_level=0, net_id=None, total=0):
     if dataset == 'cifar':
         dl_obj = CIFAR10_truncated
@@ -109,6 +171,16 @@ def load_data(dataset, datadir, dataidxs=None, noise_level=0, net_id=None, total
             [transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)), AddGaussianNoise(0., noise_level, net_id, total)])
         transform_test = transforms.Compose([
             transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+            AddGaussianNoise(0., noise_level, net_id, total)])
+    elif dataset == 'mnist':
+        dl_obj = MNIST_truncated
+
+        transform_train = transforms.Compose([
+            transforms.ToTensor(),
+            AddGaussianNoise(0., noise_level, net_id, total)])
+
+        transform_test = transforms.Compose([
+            transforms.ToTensor(),
             AddGaussianNoise(0., noise_level, net_id, total)])
     
     dataset_train = dl_obj(datadir, dataidxs=dataidxs, train=True, transform=transform_train, download=True)

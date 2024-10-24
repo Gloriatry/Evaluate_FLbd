@@ -278,9 +278,9 @@ if __name__ == '__main__':
     # else:
     #     exit('Error: unrecognized model')
 
-    if args.dataset == 'cifar' or 'cinic10':
+    if args.dataset == 'cifar' or args.dataset == 'cinic10':
         net_glob = ResNet18().to(args.device)
-    elif args.dataset == 'emnist' or 'mnist':
+    elif args.dataset == 'emnist' or args.dataset == 'mnist':
         net_glob = MnistNet().to(args.device)
     else:
         exit('Error: unrecognized model')
@@ -310,6 +310,8 @@ if __name__ == '__main__':
         net_glob.load_state_dict(param['state_dict'])
         start_epoch = param['epoch']+1
         print("load init model")
+    else:
+        start_epoch = 0
 
     w_glob = net_glob.state_dict()
         
