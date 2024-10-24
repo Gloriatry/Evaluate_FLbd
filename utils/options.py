@@ -61,7 +61,7 @@ def args_parser():
    parser.add_argument('--attack_label', type=int, default=5,
                         help="trigger for which label")
    # attack_goal=-1 is all to one
-   parser.add_argument('--attack_goal', type=int, default=7,
+   parser.add_argument('--attack_goal', type=int, default=-1,
                         help="trigger to which label")
    parser.add_argument('--trigger', type=str, default='square',
                      help="Kind of trigger")  
