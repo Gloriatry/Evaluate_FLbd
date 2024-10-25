@@ -320,6 +320,11 @@ if __name__ == '__main__':
 
     args.attack_layers=[]
     
+    args.psum = 0
+    args.nsum = 0
+    args.tn = 0
+    args.tp = 0
+
     if args.attack == "dba":
         args.dba_sign=0
     if args.defence == "krum":
@@ -380,7 +385,7 @@ if __name__ == '__main__':
             fltrust_norm = get_update(fltrust_norm, w_glob)
             w_glob = fltrust(w_updates, fltrust_norm, w_glob, args)
         elif args.defence == 'flame':
-            w_glob = flame(w_locals,w_updates,w_glob, args)
+            w_glob = flame(w_locals,w_updates,w_glob, args, writer, writer_file_name, iter)
         else:
             print("Wrong Defense Method")
             os._exit(0)

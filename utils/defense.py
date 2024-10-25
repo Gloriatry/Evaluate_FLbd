@@ -365,7 +365,7 @@ def flame(local_model, update_params, global_model, args, writer, file_name, ite
             fn += 1
         else:
             args.tn += 1
-    args.tp += num_benign_clients - fn
+    args.tp += num_malicious_clients - fn
     TPR = args.tp / args.psum
     TNR = args.tn / args.nsum
     writer.add_scalar("Metric/TPR", TPR, iter)
