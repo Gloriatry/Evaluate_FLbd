@@ -379,11 +379,11 @@ if __name__ == '__main__':
             w_glob = RLR(copy.deepcopy(net_glob), w_updates, args)
         elif args.defence == 'fltrust':
             local = LocalUpdate(
-                args=args, dataset=dataset_test, idxs=central_dataset)
+                args=args, net_id=0, dataset=dataset_test, idxs=central_dataset)
             fltrust_norm, loss = local.train(
                 net=copy.deepcopy(net_glob).to(args.device))
             fltrust_norm = get_update(fltrust_norm, w_glob)
-            w_glob = fltrust(w_updates, fltrust_norm, w_glob, args)
+            w_glob = fltrust(w_updates, fltrust_norm, w_glob, args, writer, iter)
         elif args.defence == 'flame':
             w_glob = flame(w_locals,w_updates,w_glob, args, writer, writer_file_name, iter)
         else:

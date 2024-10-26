@@ -151,6 +151,39 @@ class MNIST_truncated(data.Dataset):
     def __len__(self):
         return len(self.data)
 
+class ImageFolder_custom(datasets.DatasetFolder):
+    def __init__(self, root, dataidxs=None, train=True, transform=None, target_transform=None, download=None):
+        self.root = root
+        self.dataidxs = dataidxs
+        self.train = train
+        self.transform = transform
+        self.target_transform = target_transform
+
+        imagefolder_obj = datasets.ImageFolder(self.root, self.transform, self.target_transform)
+        self.loader = imagefolder_obj.loader
+        if self.dataidxs is not None:
+            self.samples = np.array(imagefolder_obj.samples)[self.dataidxs]
+        else:
+            self.samples = np.array(imagefolder_obj.samples)
+
+    def __getitem__(self, index):
+        path = self.samples[index][0]
+        target = self.samples[index][1]
+        target = int(target)
+        sample = self.loader(path)
+        if self.transform is not None:
+            sample = self.transform(sample)
+        if self.target_transform is not None:
+            target = self.target_transform(target)
+
+        return sample, target
+
+    def __len__(self):
+        if self.dataidxs is None:
+            return len(self.samples)
+        else:
+            return len(self.dataidxs)
+
 def load_data(dataset, datadir, dataidxs=None, noise_level=0, net_id=None, total=0):
     if dataset == 'cifar':
         dl_obj = CIFAR10_truncated
@@ -182,6 +215,21 @@ def load_data(dataset, datadir, dataidxs=None, noise_level=0, net_id=None, total
         transform_test = transforms.Compose([
             transforms.ToTensor(),
             AddGaussianNoise(0., noise_level, net_id, total)])
+    elif dataset == 'tinyimagenet':
+        dl_obj = ImageFolder_custom
+        transform_train = transforms.Compose([
+            # transforms.Resize(32), 
+            # transforms.RandomCrop(32, padding=4),
+            # transforms.RandomHorizontalFlip(),
+            # transforms.RandomRotation(15),
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+        ])
+        transform_test = transforms.Compose([
+            # transforms.Resize(32), 
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+        ])
     
     dataset_train = dl_obj(datadir, dataidxs=dataidxs, train=True, transform=transform_train, download=True)
     dataset_test = dl_obj(datadir, train=False, transform=transform_test, download=True)

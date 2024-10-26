@@ -19,7 +19,7 @@ def cos(a, b):
     return res
 
 
-def fltrust(params, central_param, global_parameters, args):
+def fltrust(params, central_param, global_parameters, args, writer, iter):
     FLTrustTotalScore = 0
     score_list = []
     central_param_v = parameters_dict_to_vector_flt(central_param)
@@ -44,6 +44,27 @@ def fltrust(params, central_param, global_parameters, args):
             for var in sum_parameters:
                 sum_parameters[var] = sum_parameters[var] + client_cos * client_clipped_value * local_parameters[
                     var]
+    print(score_list)
+    num_clients = max(int(args.frac * args.num_users), 1)
+    num_attack = int(args.malicious * num_clients)
+    num_benign = num_clients - num_attack
+    args.psum += score_list.count(0)
+    args.nsum += len(params) - score_list.count(0)
+    fp = 0
+    malicious_indices = [index for index, value in enumerate(score_list) if value == 0]
+    for mali_index in malicious_indices:
+        if mali_index < num_attack:
+            args.tp += 1
+        else:
+            fp += 1
+    args.tn += num_benign - fp
+    if args.psum == 0:
+        args.psum += 1e-10
+    TPR = args.tp / args.psum
+    TNR = args.tn / args.nsum
+    writer.add_scalar("Metric/TPR", TPR, iter)
+    writer.add_scalar("Metric/TNR", TNR, iter)
+
     if FLTrustTotalScore == 0:
         print(score_list)
         return global_parameters
