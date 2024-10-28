@@ -78,6 +78,8 @@ def args_parser():
    # defense
    parser.add_argument('--defence', type=str,
                         default='avg', help="strategy of defence")
+   parser.add_argument('--start_defence', type=int, default=200,
+                        help="which epoch to start defence")
 
 
 

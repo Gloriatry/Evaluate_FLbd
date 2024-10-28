@@ -96,8 +96,8 @@ if __name__ == '__main__':
     writer_file_name = f"""scratch:{args.init is 'None'}-{args.dataset}-seed:{args.seed}"""\
             + f"""-{args.heter}-alpha:{args.alpha}-gau_noise:{args.gau_noise}"""\
             + f"""-{args.attack}-malicious:{args.malicious}-poi_frac:{args.poison_frac}"""\
-            + f"""-lr_m:{args.lr_m}-lr_b:{args.lr_b}"""\
-            + f"""-{args.defence}"""
+            + f"""-lr_m:{args.lr_m}-lr_b:{args.lr_b}-ep_m:{args.local_ep_m}-ep_b:{args.local_ep_b}"""\
+            + f"""-{args.defence}-start_attack:{args.start_attack}-start_defence:{args.start_defence}"""
     writer = SummaryWriter('../elogs/' + writer_file_name)
 
     # load dataset and split users
@@ -370,25 +370,29 @@ if __name__ == '__main__':
 
         if args.defence == 'avg':  # no defence
             w_glob = FedAvg(w_locals)
-        elif args.defence == 'krum':  # single krum
-            selected_client = multi_krum(w_updates, 1, args)
-            # print(args.krum_distance)
-            w_glob = w_locals[selected_client[0]]
-            # w_glob = FedAvg([w_locals[i] for i in selected_clinet])
-        elif args.defence == 'RLR':
-            w_glob = RLR(copy.deepcopy(net_glob), w_updates, args)
-        elif args.defence == 'fltrust':
-            local = LocalUpdate(
-                args=args, net_id=0, dataset=dataset_test, idxs=central_dataset)
-            fltrust_norm, loss = local.train(
-                net=copy.deepcopy(net_glob).to(args.device))
-            fltrust_norm = get_update(fltrust_norm, w_glob)
-            w_glob = fltrust(w_updates, fltrust_norm, w_glob, args, writer, iter)
-        elif args.defence == 'flame':
-            w_glob = flame(w_locals,w_updates,w_glob, args, writer, writer_file_name, iter)
         else:
-            print("Wrong Defense Method")
-            os._exit(0)
+            if iter > args.start_defence:
+                if args.defence == 'krum':  # single krum
+                    selected_client = multi_krum(w_updates, 1, args)
+                    # print(args.krum_distance)
+                    w_glob = w_locals[selected_client[0]]
+                    # w_glob = FedAvg([w_locals[i] for i in selected_clinet])
+                elif args.defence == 'RLR':
+                    w_glob = RLR(copy.deepcopy(net_glob), w_updates, args)
+                elif args.defence == 'fltrust':
+                    local = LocalUpdate(
+                        args=args, net_id=0, dataset=dataset_test, idxs=central_dataset)
+                    fltrust_norm, loss = local.train(
+                        net=copy.deepcopy(net_glob).to(args.device))
+                    fltrust_norm = get_update(fltrust_norm, w_glob)
+                    w_glob = fltrust(w_updates, fltrust_norm, w_glob, args, writer, iter)
+                elif args.defence == 'flame':
+                    w_glob = flame(w_locals,w_updates,w_glob, args, writer, writer_file_name, iter)
+                else:
+                    print("Wrong Defense Method")
+                    os._exit(0)
+            else:
+                w_glob = FedAvg(w_locals)
         
         # copy weight to net_glob
         net_glob.load_state_dict(w_glob)
