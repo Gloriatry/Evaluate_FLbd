@@ -151,6 +151,67 @@ class MNIST_truncated(data.Dataset):
     def __len__(self):
         return len(self.data)
 
+class EMNIST_truncated(data.Dataset):
+
+    def __init__(self, root, dataidxs=None, train=True, transform=None, target_transform=None, download=False):
+
+        self.root = root
+        self.dataidxs = dataidxs
+        self.train = train
+        self.transform = transform
+        self.target_transform = target_transform
+        self.download = download
+
+        self.data, self.target = self.__build_truncated_dataset__()
+
+    def __build_truncated_dataset__(self):
+
+        emnist_dataobj = datasets.EMNIST(self.root, split='digits', train=self.train, transform=self.transform, download=self.download)
+
+        # if self.train:
+        #     data = mnist_dataobj.train_data
+        #     target = mnist_dataobj.train_labels
+        # else:
+        #     data = mnist_dataobj.test_data
+        #     target = mnist_dataobj.test_labels
+
+        data = emnist_dataobj.data
+        target = emnist_dataobj.targets
+
+        if self.dataidxs is not None:
+            data = data[self.dataidxs]
+            target = target[self.dataidxs]
+
+        return data, target
+
+    def __getitem__(self, index):
+        """
+        Args:
+            index (int): Index
+
+        Returns:
+            tuple: (image, target) where target is index of the target class.
+        """
+        img, target = self.data[index], self.target[index]
+
+        # doing this so that it is consistent with all other datasets
+        # to return a PIL Image
+        img = Image.fromarray(img.numpy(), mode='L')
+
+        # print("mnist img:", img)
+        # print("mnist target:", target)
+
+        if self.transform is not None:
+            img = self.transform(img)
+
+        if self.target_transform is not None:
+            target = self.target_transform(target)
+
+        return img, target
+
+    def __len__(self):
+        return len(self.data)
+
 class ImageFolder_custom(datasets.DatasetFolder):
     def __init__(self, root, dataidxs=None, train=True, transform=None, target_transform=None, download=None):
         self.root = root
@@ -224,14 +285,32 @@ def load_data(dataset, datadir, dataidxs=None, noise_level=0, net_id=None, total
             # transforms.RandomRotation(15),
             transforms.ToTensor(),
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+            AddGaussianNoise(0., noise_level, net_id, total)
         ])
         transform_test = transforms.Compose([
             # transforms.Resize(32), 
             transforms.ToTensor(),
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+            AddGaussianNoise(0., noise_level, net_id, total)
+        ])
+    elif dataset == 'emnist':
+        dl_obj = EMNIST_truncated
+        transform_train = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.1307,), (0.3081,)),
+            AddGaussianNoise(0., noise_level, net_id, total)
+        ])
+        transform_test = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.1307,), (0.3081,)),
+            AddGaussianNoise(0., noise_level, net_id, total)
         ])
     
-    dataset_train = dl_obj(datadir, dataidxs=dataidxs, train=True, transform=transform_train, download=True)
-    dataset_test = dl_obj(datadir, train=False, transform=transform_test, download=True)
+    if dataset == "tinyimagenet":
+        dataset_train = dl_obj(datadir+'/train/', dataidxs=dataidxs, transform=transform_train)
+        dataset_test = dl_obj(datadir+'/val/', transform=transform_test)
+    else:
+        dataset_train = dl_obj(datadir, dataidxs=dataidxs, train=True, transform=transform_train, download=True)
+        dataset_test = dl_obj(datadir, train=False, transform=transform_test, download=True)
         
     return dataset_train, dataset_test

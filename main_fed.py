@@ -218,11 +218,15 @@ if __name__ == '__main__':
     data_dir = '../data/'
     args.data_dir = data_dir+args.dataset
     dataset_train, dataset_test = load_data(args.dataset, args.data_dir)
+    # print(len(dataset_test), len(dataset_train))
 
     if args.attack == "edges":
         if args.dataset == 'cifar':
             args.poison_trainloader, _, args.poison_testloader, _, args.clean_val_loader = load_poisoned_dataset(dataset = args.dataset, fraction = 1, batch_size = args.local_bs, test_batch_size = args.bs, poison_type='southwest', attack_case='edge-case', edge_split = 0.5)
             print('poison train and test data from southwest loaded')
+        elif args.dataset == 'emnist':
+            args.poison_trainloader, _, args.poison_testloader, _, _ = load_poisoned_dataset(dataset = args.dataset, fraction = 1, batch_size = args.local_bs, test_batch_size = args.bs, poison_type='ardis')
+            print('poison train and test data from ARDIS loaded')
     
     if args.attack == "semantic":
         if args.dataset == 'cifar':
@@ -259,7 +263,7 @@ if __name__ == '__main__':
         dict_users = one_label_expert(np.array([data[1] for data in dataset_train]), args.num_users, class_num, args.alpha)
     elif args.heter == "dirichlet":
         dict_users = dirichlet(dataset_train, args.num_users, args.alpha)
-    elif args.heter > "noniid-#label0" and args.heter <= "noniid-#label9":
+    elif args.heter > "noniid-#label0" and args.heter <= "noniid-#label99":
         dict_users = label_num_noniid(args.heter, dataset_train, args.num_users)
     elif args.heter == "quantity":
         dict_users = quantity_noniid(dataset_train, args.num_users, args.alpha)
@@ -278,7 +282,7 @@ if __name__ == '__main__':
     # else:
     #     exit('Error: unrecognized model')
 
-    if args.dataset == 'cifar' or args.dataset == 'cinic10':
+    if args.dataset == 'cifar' or args.dataset == 'tinyimagenet':
         net_glob = ResNet18().to(args.device)
     elif args.dataset == 'emnist' or args.dataset == 'mnist':
         net_glob = MnistNet().to(args.device)

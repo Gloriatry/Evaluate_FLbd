@@ -291,6 +291,7 @@ def dirichlet(dataset_train, no_participants, alpha):
 
 def label_num_noniid(heter, dataset_train, n_parties):
     num = eval(heter[13:])
+    print(f"now split in noniid-#label{num} mode")
     data_classes = {}
     for ind, x in enumerate(dataset_train):
         _, label = x
