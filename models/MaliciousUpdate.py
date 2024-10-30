@@ -39,17 +39,12 @@ class LocalMaliciousUpdate(object):
         self.args = args
         self.loss_func = nn.CrossEntropyLoss()
         self.selected_clients = []
-        if args.gau_noise > 0:
-            noise_level = args.gau_noise / (args.num_users - 1) * net_id
-            dataset, _ = load_data(args.dataset, args.data_dir, idxs, noise_level)
-        else:
-            dataset = DatasetSplit(dataset, idxs)
-        self.ldr_train = DataLoader(dataset, batch_size=self.args.local_bs, shuffle=True)
         if args.attack == "edges":
-            own_dataset = self.ldr_train.dataset
+            # own_dataset = self.ldr_train.dataset
             edge_dataset = self.args.poison_trainloader.dataset
             self.ldr_train = torch.utils.data.DataLoader(
-                            torch.utils.data.ConcatDataset([own_dataset, edge_dataset]),
+                            # torch.utils.data.ConcatDataset([own_dataset, edge_dataset]),
+                            edge_dataset,
                             batch_size=self.args.local_bs, shuffle=True)
         elif args.attack == "semantic":
             own_dataset = self.ldr_train.dataset
@@ -57,6 +52,13 @@ class LocalMaliciousUpdate(object):
             self.ldr_train = torch.utils.data.DataLoader(
                             torch.utils.data.ConcatDataset([own_dataset, green_car_as_bird_dataset]),
                             batch_size=self.args.local_bs, shuffle=True)
+        else:
+            if args.gau_noise > 0:
+                noise_level = args.gau_noise / (args.num_users - 1) * net_id
+                dataset, _ = load_data(args.dataset, args.data_dir, idxs, noise_level)
+            else:
+                dataset = DatasetSplit(dataset, idxs)
+        self.ldr_train = DataLoader(dataset, batch_size=self.args.local_bs, shuffle=True)
         #  change 0708
         self.data = DatasetSplit(dataset, idxs)
         
@@ -215,7 +217,7 @@ class LocalMaliciousUpdate(object):
         #         net, dataset_test, args, test_backdoor=True)
         #     print("local Testing accuracy: {:.2f}".format(acc_test))
         #     print("local Backdoor accuracy: {:.2f}".format(backdoor_acc))
-        return net.state_dict(), sum(epoch_loss) / len(epoch_loss)
+        return net, net.state_dict(), sum(epoch_loss) / len(epoch_loss)
         
             
 

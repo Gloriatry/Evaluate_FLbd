@@ -12,7 +12,7 @@ from models.Update import LocalUpdate
 from utils.info import print_exp_details, write_info_to_accfile, get_base_info
 from utils.options import args_parser
 from utils.sampling import homo, one_label_expert, dirichlet, label_num_noniid, quantity_noniid
-from utils.defense import fltrust, multi_krum, get_update, RLR, flame
+from utils.defense import fltrust, multi_krum, get_update, RLR, flame, multi_metrics, fl_defender
 from utils.semantic_backdoor import load_poisoned_dataset
 from utils.load_data import load_data
 import torch
@@ -255,20 +255,29 @@ if __name__ == '__main__':
             dataset_train = torch.utils.data.Subset(dataset_train, remaining_indices)
             print('poison train and test data of green car loaded')
 
-    if args.heter == "homo":
-        # dict_users = np.load('./data/iid_cifar.npy', allow_pickle=True).item()
-        dict_users = homo(dataset_train, args.num_users)
-    elif args.heter == "label_noniid":
-        # dict_users = np.load('./data/non_iid_cifar.npy', allow_pickle=True).item()
-        dict_users = one_label_expert(np.array([data[1] for data in dataset_train]), args.num_users, class_num, args.alpha)
-    elif args.heter == "dirichlet":
-        dict_users = dirichlet(dataset_train, args.num_users, args.alpha)
-    elif args.heter > "noniid-#label0" and args.heter <= "noniid-#label99":
-        dict_users = label_num_noniid(args.heter, dataset_train, args.num_users)
-    elif args.heter == "quantity":
-        dict_users = quantity_noniid(dataset_train, args.num_users, args.alpha)
-    else:
-        exit('Error: unrecognized heterogenity setting')
+    if args.attack == 'dba':
+        if args.heter == "homo":
+            # dict_users = np.load('./data/iid_cifar.npy', allow_pickle=True).item()
+            dict_users = homo(dataset_train, args.num_users)
+        elif args.heter == "label_noniid":
+            # dict_users = np.load('./data/non_iid_cifar.npy', allow_pickle=True).item()
+            dict_users = one_label_expert(np.array([data[1] for data in dataset_train]), args.num_users, class_num, args.alpha)
+        elif args.heter == "dirichlet":
+            dict_users = dirichlet(dataset_train, args.num_users, args.alpha)
+        elif args.heter > "noniid-#label0" and args.heter <= "noniid-#label99":
+            dict_users = label_num_noniid(args.heter, dataset_train, args.num_users)
+        elif args.heter == "quantity":
+            dict_users = quantity_noniid(dataset_train, args.num_users, args.alpha)
+        else:
+            exit('Error: unrecognized heterogenity setting')
+    
+    if args.attack == 'edges':
+        if args.heter > "noniid-#label0" and args.heter <= "noniid-#label99":
+            adv_num = int(args.num_users * args.malicious)
+            dict_users_o = label_num_noniid(args.heter, dataset_train, args.num_users-adv_num)
+            dict_users = {i:np.ndarray(0,dtype=np.int64) for i in range(args.num_users)}
+            for k, v in dict_users_o.items():
+                dict_users[k+adv_num] = v
 
     img_size = dataset_train[0][0].shape
 
@@ -333,7 +342,10 @@ if __name__ == '__main__':
         args.dba_sign=0
     if args.defence == "krum":
         args.krum_distance=[]
-        
+    if args.defence == "multi-metrics":
+        args.tn_ori = 0
+        args.tp_ori = 0
+
     # if args.all_clients:
     #     print("Aggregation over all clients")
     #     w_locals = [w_glob for i in range(args.num_users)]
@@ -342,6 +354,7 @@ if __name__ == '__main__':
         loss_locals = []
         w_locals = []
         w_updates = []
+        net_list = []
         m = max(int(args.frac * args.num_users), 1)
         # idxs_users = np.random.choice(range(args.num_users), m, replace=False)
         if iter > args.start_attack:
@@ -360,17 +373,18 @@ if __name__ == '__main__':
                 #     idx = args.dba_sign % (4*dba_group)
                 #     args.dba_sign+=1
                 local = LocalMaliciousUpdate(args=args, net_id=idx, dataset=dataset_train, idxs=dict_users[idx], order=adversaries.index(idx))
-                w, loss = local.train(
+                inet, w, loss = local.train(
                     net=copy.deepcopy(net_glob).to(args.device), test_img = test_img)
                 print("client", idx, "--attack--")
             else:
                 local = LocalUpdate(
                     args=args, net_id=idx, dataset=dataset_train, idxs=dict_users[idx])
-                w, loss = local.train(
+                inet, w, loss = local.train(
                     net=copy.deepcopy(net_glob).to(args.device))
             w_updates.append(get_update(w, w_glob))
             w_locals.append(copy.deepcopy(w))
             loss_locals.append(copy.deepcopy(loss))
+            net_list.append(copy.deepcopy(inet))
 
         if args.defence == 'avg':  # no defence
             w_glob = FedAvg(w_locals)
@@ -392,6 +406,10 @@ if __name__ == '__main__':
                     w_glob = fltrust(w_updates, fltrust_norm, w_glob, args, writer, iter)
                 elif args.defence == 'flame':
                     w_glob = flame(w_locals,w_updates,w_glob, args, writer, writer_file_name, iter)
+                elif args.defence == 'multi-metrics':
+                    w_glob = multi_metrics(net_list, w_updates, w_glob, args, writer, iter)
+                elif args.defence == 'fl-defender':
+                    w_glob = fl_defender(copy.deepcopy(net_glob), net_list, w_updates, args, writer, writer_file_name, iter)
                 else:
                     print("Wrong Defense Method")
                     os._exit(0)

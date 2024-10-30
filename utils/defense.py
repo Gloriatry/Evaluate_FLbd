@@ -8,6 +8,8 @@ import os
 import matplotlib.pyplot as plt  
 from sklearn.manifold import TSNE 
 from sklearn.decomposition import PCA
+import sklearn.metrics.pairwise as smp
+from sklearn.preprocessing import StandardScaler
 
 def cos(a, b):
     # res = np.sum(a*b.T)/((np.sqrt(np.sum(a * a.T)) + 1e-9) * (np.sqrt(np.sum(b * b.T))) + 1e-
@@ -409,4 +411,145 @@ def flame(local_model, update_params, global_model, args, writer, file_name, ite
         temp = temp.normal_(mean=0,std=args.noise*clip_value)
         var += temp
     return global_model
+
+def vectorize_net(net):
+    return torch.cat([p.view(-1) for p in net.parameters()])
+
+def multi_metrics(net_list, update_params, global_model, args, writer, iter):
+    num_clients = max(int(args.frac * args.num_users), 1)
+    num_malicious_clients = int(args.malicious * num_clients)
+    num_benign_clients = num_clients - num_malicious_clients
+
+    vectorize_nets = [vectorize_net(cm).detach().cpu().numpy() for cm in net_list]
+
+    cos_dis = [0.0] * len(vectorize_nets)
+    length_dis = [0.0] * len(vectorize_nets)
+    manhattan_dis = [0.0] * len(vectorize_nets)
+    for i, g_i in enumerate(vectorize_nets):
+        for j in range(len(vectorize_nets)):
+            if i != j:
+                g_j = vectorize_nets[j]
+
+                cosine_distance = float(
+                    (1 - np.dot(g_i, g_j) / (np.linalg.norm(g_i) * np.linalg.norm(g_j))) ** 2)   #Compute the different value of cosine distance
+                manhattan_distance = float(np.linalg.norm(g_i - g_j, ord=1))    #Compute the different value of Manhattan distance
+                length_distance = np.abs(float(np.linalg.norm(g_i) - np.linalg.norm(g_j)))    #Compute the different value of Euclidean distance
+
+                cos_dis[i] += cosine_distance
+                length_dis[i] += length_distance
+                manhattan_dis[i] += manhattan_distance
     
+    tri_distance = np.vstack([cos_dis, manhattan_dis, length_dis]).T
+
+    cov_matrix = np.cov(tri_distance.T)
+    inv_matrix = np.linalg.inv(cov_matrix)
+
+    scores = []
+    scores_ori = []
+    for i, g_i in enumerate(vectorize_nets):
+        t = tri_distance[i]
+        ma_dis = np.dot(np.dot(t, inv_matrix), t.T)
+        ori_dis = np.dot(t, t.T)
+        scores.append(ma_dis)
+        scores_ori.append(ori_dis)
+
+    # 良性的分数越小
+    # p = 1-args.malicious
+    # 直接假设已经知道攻击者的数量，最优的方案
+    p_num = num_benign_clients
+    topk_ind = np.argpartition(scores, p_num)[:p_num]
+    topk_ind_ori = np.argpartition(scores_ori, p_num)[:p_num]
+
+    args.psum += num_clients - p_num
+    args.nsum += p_num
+    fn = 0
+    for i in range(p_num):
+        if topk_ind[i] < num_malicious_clients:
+            fn += 1
+        else:
+            args.tn += 1
+    args.tp += num_malicious_clients - fn
+    TPR = args.tp / args.psum
+    TNR = args.tn / args.nsum
+    writer.add_scalar("Metric/TPR", TPR, iter)
+    writer.add_scalar("Metric/TNR", TNR, iter)
+
+    # 记录不经过动态归一化操作的原分数作为对比
+    fn_ori = 0
+    for i in range(p_num):
+        if topk_ind_ori[i] < num_malicious_clients:
+            fn_ori += 1
+        else:
+            args.tn_ori += 1
+    args.tp_ori += num_malicious_clients - fn_ori
+    TPR = args.tp_ori / args.psum
+    TNR = args.tn_ori / args.nsum
+    writer.add_scalar("Metric/TPR_ori", TPR, iter)
+    writer.add_scalar("Metric/TNR_ori", TNR, iter)
+
+    global_model = no_defence_balance([update_params[i] for i in topk_ind], global_model)
+
+    return global_model
+
+def get_pca(data):
+    data = StandardScaler().fit_transform(data)
+    pca = PCA(n_components=2)
+    data = pca.fit_transform(data)
+    return data
+
+def fl_defender(global_model, local_models, update_params, args, writer, file_name, iter):
+    num_clients = max(int(args.frac * args.num_users), 1)
+    num_malicious_clients = int(args.malicious * num_clients)
+    num_benign_clients = num_clients - num_malicious_clients
+
+    last_g = list(global_model.parameters())[-2].cpu().data.numpy()
+    m = len(local_models)
+    f_grads = [None for i in range(m)]
+    for i in range(m):
+        grad= (last_g - \
+                list(local_models[i].parameters())[-2].cpu().data.numpy())
+        f_grads[i] = grad.reshape(-1)
+
+    cs = smp.cosine_similarity(f_grads) - np.eye(m)
+    if iter > args.start_attack and iter % 100 == 0:
+        file_path = "/root/project/epics/" + file_name
+        if not os.path.exists(file_path):    
+            os.makedirs(file_path)
+        cos_proj = PCA(n_components=2).fit_transform(cs)
+        fig = plt.figure()
+        ax = fig.add_axes([0.2, 0.2, 0.6, 0.6])
+        color_map = ['r'] * num_malicious_clients + ['b'] * num_benign_clients
+        for i in range(num_clients):
+            ax.scatter(cos_proj[i, 0], cos_proj[i, 1], c=color_map[i])
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_xlabel('PCA Axis 1', fontsize=17)
+        ax.set_ylabel('PCA Axis 2', fontsize=17)
+        plt.savefig(os.path.join(file_path, str(iter)+'.pdf'))
+    cs = get_pca(cs)
+    centroid = np.median(cs, axis = 0)
+    scores = smp.cosine_similarity([centroid], cs)[0]
+
+    # TODO:看是否需要加上历史信息
+    # 良性的分数越大
+    p_num = num_benign_clients
+    topk_ind = np.argpartition(scores, -p_num)[-p_num:]
+    
+    args.psum += num_clients - p_num
+    args.nsum += p_num
+    fn = 0
+    for i in range(len(topk_ind)):
+        if topk_ind[i] < num_malicious_clients:
+            fn += 1
+        else:
+            args.tn += 1
+    args.tp += num_malicious_clients - fn
+    TPR = args.tp / args.psum
+    TNR = args.tn / args.nsum
+    writer.add_scalar("Metric/TPR", TPR, iter)
+    writer.add_scalar("Metric/TNR", TNR, iter)
+    
+    w_glob = global_model.state_dict()
+    w_glob = no_defence_balance([update_params[i] for i in topk_ind], w_glob)
+
+    return w_glob

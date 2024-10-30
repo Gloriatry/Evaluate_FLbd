@@ -64,7 +64,7 @@ class LocalUpdate(object):
                 #                100. * batch_idx / len(self.ldr_train), loss.item()))
                 batch_loss.append(loss.item())
             epoch_loss.append(sum(batch_loss)/len(batch_loss))
-        return net.state_dict(), sum(epoch_loss) / len(epoch_loss)
+        return net, net.state_dict(), sum(epoch_loss) / len(epoch_loss)
 
     def train_malicious_flipupdate(self, net, test_img=None, dataset_test=None, args=None):
         global_net_dict = copy.deepcopy(net.state_dict())
