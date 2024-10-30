@@ -59,12 +59,12 @@ def load_poisoned_dataset(*args, **kwaargs):
         #                        transforms.Normalize((0.1307,), (0.3081,))
         #                    ]))
         # prepare EMNIST dataset
-        emnist_train_dataset = datasets.EMNIST('../data/emnist', split="digits", train=True, download=True,
+        emnist_train_dataset = datasets.EMNIST('../project/data/emnist', split="digits", train=True, download=True,
                            transform=transforms.Compose([
                                transforms.ToTensor(),
                                transforms.Normalize((0.1307,), (0.3081,))
                            ]))
-        emnist_test_dataset = datasets.EMNIST('../data/emnist', split="digits", train=False, transform=transforms.Compose([
+        emnist_test_dataset = datasets.EMNIST('../project/data/emnist', split="digits", train=False, transform=transforms.Compose([
                                transforms.ToTensor(),
                                transforms.Normalize((0.1307,), (0.3081,))
                            ]))
@@ -101,7 +101,7 @@ def load_poisoned_dataset(*args, **kwaargs):
                 transforms.ToTensor(),
                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),])
 
-            trainset = torchvision.datasets.CIFAR10(root='../data/cifar', train=True, download=True, transform=transform_train)
+            trainset = torchvision.datasets.CIFAR10(root='../project/data/cifar', train=True, download=True, transform=transform_train)
 
             poisoned_trainset = copy.deepcopy(trainset)
 
@@ -190,7 +190,7 @@ def load_poisoned_dataset(*args, **kwaargs):
             trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True)
             clean_train_loader = torch.utils.data.DataLoader(clean_trainset, batch_size=batch_size, shuffle=True)
 
-            testset = torchvision.datasets.CIFAR10(root='../data/cifar', train=False, download=True, transform=transform_test)
+            testset = torchvision.datasets.CIFAR10(root='../project/data/cifar', train=False, download=True, transform=transform_test)
 
             poisoned_testset = copy.deepcopy(testset)
             poisoned_testset.data = saved_southwest_dataset_test

@@ -98,7 +98,7 @@ if __name__ == '__main__':
             + f"""-{args.attack}-malicious:{args.malicious}-poi_frac:{args.poison_frac}"""\
             + f"""-lr_m:{args.lr_m}-lr_b:{args.lr_b}-ep_m:{args.local_ep_m}-ep_b:{args.local_ep_b}"""\
             + f"""-{args.defence}-start_attack:{args.start_attack}-start_defence:{args.start_defence}"""
-    writer = SummaryWriter('../elogs/' + writer_file_name)
+    writer = SummaryWriter('../project/elogs/' + writer_file_name)
 
     # load dataset and split users
     # if args.dataset == 'mnist':
@@ -215,7 +215,7 @@ if __name__ == '__main__':
     # else:
     #     exit('Error: unrecognized dataset')
     
-    data_dir = '../data/'
+    data_dir = '../project/data/'
     args.data_dir = data_dir+args.dataset
     dataset_train, dataset_test = load_data(args.dataset, args.data_dir)
     # print(len(dataset_test), len(dataset_train))
