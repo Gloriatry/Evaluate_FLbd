@@ -93,7 +93,7 @@ if __name__ == '__main__':
     # print_exp_details(args)
     seed_experiment(args.seed)
     
-    writer_file_name = f"""scratch:{args.init is 'None'}-{args.dataset}-seed:{args.seed}"""\
+    writer_file_name = f"""model_bank:{args.model_bank}-scratch:{args.init is 'None'}-{args.dataset}-seed:{args.seed}"""\
             + f"""-{args.heter}-alpha:{args.alpha}-gau_noise:{args.gau_noise}"""\
             + f"""-{args.attack}-malicious:{args.malicious}-poi_frac:{args.poison_frac}"""\
             + f"""-lr_m:{args.lr_m}-lr_b:{args.lr_b}-ep_m:{args.local_ep_m}-ep_b:{args.local_ep_b}"""\
@@ -400,7 +400,7 @@ if __name__ == '__main__':
                 elif args.defence == 'fltrust':
                     local = LocalUpdate(
                         args=args, net_id=0, dataset=dataset_test, idxs=central_dataset)
-                    fltrust_norm, loss = local.train(
+                    cnet, fltrust_norm, loss = local.train(
                         net=copy.deepcopy(net_glob).to(args.device))
                     fltrust_norm = get_update(fltrust_norm, w_glob)
                     w_glob = fltrust(w_updates, fltrust_norm, w_glob, args, writer, iter)
@@ -472,3 +472,13 @@ if __name__ == '__main__':
     # print("Testing accuracy: {:.2f}".format(acc_test))
     
     # torch.save(net_glob.state_dict(), f'model_bank/{args.dataset}_{args.epochs}.pt')
+    if args.model_bank:
+        model_dir = '/root/project/model_bank/'+args.dataset
+        if not os.path.exists(model_dir):    
+            os.makedirs(model_dir)
+        model_filename = f'model_{args.heter}_{args.alpha}_{args.gau_noise}_{args.lr_b}_{args.local_ep_b}.pt.tar.epoch_{args.epochs}'
+        model_save_dict = {
+            'state_dict': net_glob.state_dict(),
+            'epoch': args.epochs
+        }
+        torch.save(model_save_dict, os.path.join(model_dir, model_filename))

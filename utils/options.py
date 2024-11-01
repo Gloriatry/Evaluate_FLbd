@@ -11,6 +11,8 @@ def args_parser():
    # basic arguments
    parser.add_argument('--init', type=str, default='None',
                      help="location of init model")
+   parser.add_argument('--model_bank', action='store_true',
+                     help="is it the process of training the pre-trained model")
    parser.add_argument('--gpu', type=int, default=0,
                      help="GPU ID, -1 for CPU")
    parser.add_argument('--seed', type=int, default=1,

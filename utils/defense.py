@@ -21,45 +21,58 @@ def cos(a, b):
     return res
 
 
-def fltrust(params, central_param, global_parameters, args, writer, iter):
+def fltrust(update_params, central_param, global_model, args, writer, iter):
+    num_clients = max(int(args.frac * args.num_users), 1)
+    num_malicious_clients = int(args.malicious * num_clients)
+    num_benign_clients = num_clients - num_malicious_clients
+
     FLTrustTotalScore = 0
     score_list = []
     central_param_v = parameters_dict_to_vector_flt(central_param)
     central_norm = torch.norm(central_param_v)
-    cos = torch.nn.CosineSimilarity(dim=0, eps=1e-6).cuda()
+    cos = torch.nn.CosineSimilarity(dim=0, eps=1e-6).to(args.device)
     sum_parameters = None
-    for local_parameters in params:
+    benign_client = []
+    for i, local_parameters in enumerate(update_params):
         local_parameters_v = parameters_dict_to_vector_flt(local_parameters)
         # 计算cos相似度得分和向量长度裁剪值
         client_cos = cos(central_param_v, local_parameters_v)
-        client_cos = max(client_cos.item(), 0)
-        client_clipped_value = central_norm/torch.norm(local_parameters_v)
-        score_list.append(client_cos)
-        FLTrustTotalScore += client_cos
-        if sum_parameters is None:
-            sum_parameters = {}
-            for key, var in local_parameters.items():
-                # 乘得分 再乘裁剪值
-                sum_parameters[key] = client_cos * \
-                    client_clipped_value * var.clone()
+        # client_cos = max(client_cos.item(), 0)
+        if client_cos >= 0:
+            benign_client.append(i)
+        # client_clipped_value = central_norm/torch.norm(local_parameters_v)
+        # score_list.append(client_cos)
+        # FLTrustTotalScore += client_cos
+    #     if sum_parameters is None:
+    #         sum_parameters = {}
+    #         for key, var in local_parameters.items():
+    #             # 乘得分 再乘裁剪值
+    #             sum_parameters[key] = client_cos * \
+    #                 client_clipped_value * var.clone()
+    #     else:
+    #         for var in sum_parameters:
+    #             sum_parameters[var] = sum_parameters[var] + client_cos * client_clipped_value * local_parameters[
+    #                 var]
+    # print(score_list)
+
+    for i in range(len(benign_client)):
+        gama = central_norm/torch.norm(parameters_dict_to_vector_flt(update_params[benign_client[i]]))
+        if gama < 1:
+            for key in update_params[benign_client[i]]:
+                if key.split('.')[-1] == 'num_batches_tracked':
+                    continue
+                update_params[benign_client[i]][key] *= gama
+    global_model = no_defence_balance([update_params[i] for i in benign_client], global_model)
+
+    args.psum += num_clients - len(benign_client)
+    args.nsum += len(benign_client)
+    fn = 0
+    for i in range(len(benign_client)):
+        if benign_client[i] < num_malicious_clients:
+            fn += 1
         else:
-            for var in sum_parameters:
-                sum_parameters[var] = sum_parameters[var] + client_cos * client_clipped_value * local_parameters[
-                    var]
-    print(score_list)
-    num_clients = max(int(args.frac * args.num_users), 1)
-    num_attack = int(args.malicious * num_clients)
-    num_benign = num_clients - num_attack
-    args.psum += score_list.count(0)
-    args.nsum += len(params) - score_list.count(0)
-    fp = 0
-    malicious_indices = [index for index, value in enumerate(score_list) if value == 0]
-    for mali_index in malicious_indices:
-        if mali_index < num_attack:
-            args.tp += 1
-        else:
-            fp += 1
-    args.tn += num_benign - fp
+            args.tn += 1
+    args.tp += num_malicious_clients - fn
     if args.psum == 0:
         args.psum += 1e-10
     TPR = args.tp / args.psum
@@ -67,20 +80,20 @@ def fltrust(params, central_param, global_parameters, args, writer, iter):
     writer.add_scalar("Metric/TPR", TPR, iter)
     writer.add_scalar("Metric/TNR", TNR, iter)
 
-    if FLTrustTotalScore == 0:
-        print(score_list)
-        return global_parameters
-    for var in global_parameters:
-        # 除以所以客户端的信任得分总和
-        temp = (sum_parameters[var] / FLTrustTotalScore)
-        if global_parameters[var].type() != temp.type():
-            temp = temp.type(global_parameters[var].type())
-        if var.split('.')[-1] == 'num_batches_tracked':
-            global_parameters[var] = params[0][var]
-        else:
-            global_parameters[var] += temp * args.server_lr
-    print(score_list)
-    return global_parameters
+    # if FLTrustTotalScore == 0:
+    #     print(score_list)
+    #     return global_parameters
+    # for var in global_parameters:
+    #     # 除以所以客户端的信任得分总和
+    #     temp = (sum_parameters[var] / FLTrustTotalScore)
+    #     if global_parameters[var].type() != temp.type():
+    #         temp = temp.type(global_parameters[var].type())
+    #     if var.split('.')[-1] == 'num_batches_tracked':
+    #         global_parameters[var] = params[0][var]
+    #     else:
+    #         global_parameters[var] += temp * args.server_lr
+    # print(score_list)
+    return global_model
 
 
 def parameters_dict_to_vector_flt(net_dict) -> torch.Tensor:
@@ -312,7 +325,7 @@ def compute_robustLR(params, args):
 
 
 def flame(local_model, update_params, global_model, args, writer, file_name, iter):
-    cos = torch.nn.CosineSimilarity(dim=0, eps=1e-6).cuda()
+    cos = torch.nn.CosineSimilarity(dim=0, eps=1e-6).to(args.device)
     cos_list=[]
     local_model_vector = []
     for param in local_model:
@@ -420,8 +433,8 @@ def multi_metrics(net_list, update_params, global_model, args, writer, iter):
     num_malicious_clients = int(args.malicious * num_clients)
     num_benign_clients = num_clients - num_malicious_clients
 
-    vectorize_nets = [vectorize_net(cm).detach().cpu().numpy() for cm in net_list]
-
+    vectorize_nets = [vectorize_net(cm).detach() for cm in net_list]
+    cos = torch.nn.CosineSimilarity(dim=0, eps=1e-6).to(args.device)
     cos_dis = [0.0] * len(vectorize_nets)
     length_dis = [0.0] * len(vectorize_nets)
     manhattan_dis = [0.0] * len(vectorize_nets)
@@ -430,26 +443,30 @@ def multi_metrics(net_list, update_params, global_model, args, writer, iter):
             if i != j:
                 g_j = vectorize_nets[j]
 
-                cosine_distance = float(
-                    (1 - np.dot(g_i, g_j) / (np.linalg.norm(g_i) * np.linalg.norm(g_j))) ** 2)   #Compute the different value of cosine distance
-                manhattan_distance = float(np.linalg.norm(g_i - g_j, ord=1))    #Compute the different value of Manhattan distance
-                length_distance = np.abs(float(np.linalg.norm(g_i) - np.linalg.norm(g_j)))    #Compute the different value of Euclidean distance
+                # cosine_distance = float(
+                #     (1 - np.dot(g_i, g_j) / (np.linalg.norm(g_i) * np.linalg.norm(g_j))) ** 2)   #Compute the different value of cosine distance
+                # manhattan_distance = float(np.linalg.norm(g_i - g_j, ord=1))    #Compute the different value of Manhattan distance
+                # length_distance = np.abs(float(np.linalg.norm(g_i) - np.linalg.norm(g_j)))    #Compute the different value of Euclidean distance
+
+                cosine_distance = (1 - cos(g_i, g_j)) ** 2  
+                manhattan_distance = torch.norm(g_i - g_j, p=1).item()
+                length_distance = torch.abs(torch.norm(g_i) - torch.norm(g_j)).item()
 
                 cos_dis[i] += cosine_distance
                 length_dis[i] += length_distance
                 manhattan_dis[i] += manhattan_distance
     
-    tri_distance = np.vstack([cos_dis, manhattan_dis, length_dis]).T
+    tri_distance = torch.tensor([cos_dis, manhattan_dis, length_dis], dtype=torch.float32).T.to(args.device)
 
-    cov_matrix = np.cov(tri_distance.T)
-    inv_matrix = np.linalg.inv(cov_matrix)
+    cov_matrix = torch.cov(tri_distance.T)
+    inv_matrix = torch.inverse(cov_matrix)
 
     scores = []
     scores_ori = []
     for i, g_i in enumerate(vectorize_nets):
         t = tri_distance[i]
-        ma_dis = np.dot(np.dot(t, inv_matrix), t.T)
-        ori_dis = np.dot(t, t.T)
+        ma_dis = torch.matmul(torch.matmul(t.unsqueeze(0), inv_matrix), t.unsqueeze(0).T).item()
+        ori_dis = torch.matmul(t, t.T)
         scores.append(ma_dis)
         scores_ori.append(ori_dis)
 
@@ -502,20 +519,30 @@ def fl_defender(global_model, local_models, update_params, args, writer, file_na
     num_malicious_clients = int(args.malicious * num_clients)
     num_benign_clients = num_clients - num_malicious_clients
 
-    last_g = list(global_model.parameters())[-2].cpu().data.numpy()
+    cos = torch.nn.CosineSimilarity(dim=0, eps=1e-6).to(args.device)
+    last_g = list(global_model.parameters())[-2].detach().reshape(-1)
     m = len(local_models)
     f_grads = [None for i in range(m)]
     for i in range(m):
-        grad= (last_g - \
-                list(local_models[i].parameters())[-2].cpu().data.numpy())
-        f_grads[i] = grad.reshape(-1)
+        f_grads[i] = (last_g - \
+                list(local_models[i].parameters())[-2].detach().reshape(-1))
+        # f_grads[i] = grad.reshape(-1)
 
-    cs = smp.cosine_similarity(f_grads) - np.eye(m)
+    cos_list = []
+    for i in range(len(f_grads)):
+        cos_i = []
+        for j in range(len(f_grads)):
+            cos_ij = 1- cos(f_grads[i],f_grads[j])
+            # cos_i.append(round(cos_ij.item(),4))
+            cos_i.append(cos_ij.item())
+        cos_list.append(cos_i)
+
+    # cs = smp.cosine_similarity(f_grads) - np.eye(m)
     if iter > args.start_attack and iter % 100 == 0:
         file_path = "/root/project/epics/" + file_name
         if not os.path.exists(file_path):    
             os.makedirs(file_path)
-        cos_proj = PCA(n_components=2).fit_transform(cs)
+        cos_proj = PCA(n_components=2).fit_transform(cos_list)
         fig = plt.figure()
         ax = fig.add_axes([0.2, 0.2, 0.6, 0.6])
         color_map = ['r'] * num_malicious_clients + ['b'] * num_benign_clients
@@ -526,9 +553,11 @@ def fl_defender(global_model, local_models, update_params, args, writer, file_na
         ax.set_xlabel('PCA Axis 1', fontsize=17)
         ax.set_ylabel('PCA Axis 2', fontsize=17)
         plt.savefig(os.path.join(file_path, str(iter)+'.pdf'))
-    cs = get_pca(cs)
-    centroid = np.median(cs, axis = 0)
-    scores = smp.cosine_similarity([centroid], cs)[0]
+    cs = torch.tensor(get_pca(cos_list), dtype=torch.float32)
+    centroid = torch.quantile(cs, 0.5, dim=0)
+    scores = []
+    for i in range(len(cs)):
+        scores.append(cos(cs[i], centroid))
 
     # TODO:看是否需要加上历史信息
     # 良性的分数越大
