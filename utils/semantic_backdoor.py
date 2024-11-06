@@ -5,6 +5,7 @@ import torchvision
 import torch.nn.functional as F
 from torch.autograd import Variable
 from torchvision import datasets, transforms
+from PIL import Image
 
 import copy
 import logging

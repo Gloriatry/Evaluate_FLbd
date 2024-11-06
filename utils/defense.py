@@ -10,6 +10,24 @@ from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
 import sklearn.metrics.pairwise as smp
 from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import AgglomerativeClustering, DBSCAN
+from torch.utils.data import DataLoader, Dataset
+from utils.CrowdGuard import CrowdGuardClientValidation
+from utils.load_data import load_data
+
+class DatasetSplit(Dataset):
+    def __init__(self, dataset, idxs):
+        self.dataset = dataset
+        self.idxs = list(idxs)
+
+    def __len__(self):
+        return len(self.idxs)
+
+    def __getitem__(self, item):
+        # print(item)
+        image, label = self.dataset[self.idxs[item]]
+        return image, label
+
 
 def cos(a, b):
     # res = np.sum(a*b.T)/((np.sqrt(np.sum(a * a.T)) + 1e-9) * (np.sqrt(np.sum(b * b.T))) + 1e-
@@ -321,7 +339,24 @@ def compute_robustLR(params, args):
     sm_of_signs[sm_of_signs >= args.robustLR_threshold] = args.server_lr 
     return sm_of_signs.to(args.gpu)
    
-    
+def record_TNR_TPR(args, benign_client:list, writer, iter):
+    num_clients = max(int(args.frac * args.num_users), 1)
+    num_malicious_clients = int(args.malicious * num_clients)
+    num_benign_clients = num_clients - num_malicious_clients
+
+    args.psum += num_clients - len(benign_client)
+    args.nsum += len(benign_client)
+    fn = 0
+    for i in range(len(benign_client)):
+        if benign_client[i] < num_malicious_clients:
+            fn += 1
+        else:
+            args.tn += 1
+    args.tp += num_malicious_clients - fn
+    TPR = args.tp / args.psum
+    TNR = args.tn / args.nsum
+    writer.add_scalar("Metric/TPR", TPR, iter)
+    writer.add_scalar("Metric/TNR", TNR, iter)
 
 
 def flame(local_model, update_params, global_model, args, writer, file_name, iter):
@@ -580,5 +615,100 @@ def fl_defender(global_model, local_models, update_params, args, writer, file_na
     
     w_glob = global_model.state_dict()
     w_glob = no_defence_balance([update_params[i] for i in topk_ind], w_glob)
+
+    return w_glob
+
+def create_cluster_map_from_labels(expected_number_of_labels, clustering_labels):
+    """
+    Converts a list of labels into a dictionary where each label is the key and
+    the values are lists/np arrays of the indices from the samples that received
+    the respective label
+    :param expected_number_of_labels number of samples whose labels are contained in
+    clustering_labels
+    :param clustering_labels list containing the labels of each sample
+    :return dictionary of clusters
+    """
+    assert len(clustering_labels) == expected_number_of_labels
+
+    clusters = {}
+    for i, cluster in enumerate(clustering_labels):
+        if cluster not in clusters:
+            clusters[cluster] = []
+        clusters[cluster].append(i)
+    return {index: np.array(cluster) for index, cluster in clusters.items()}
+
+def determine_biggest_cluster(clustering):
+    """
+    Given a clustering, given as dictionary of the form {cluster_id: [items in cluster]}, the
+    function returns the id of the biggest cluster
+    """
+    biggest_cluster_id = None
+    biggest_cluster_size = None
+    for cluster_id, cluster in clustering.items():
+        size_of_current_cluster = np.array(cluster).shape[0]
+        if biggest_cluster_id is None or size_of_current_cluster > biggest_cluster_size:
+            biggest_cluster_id = cluster_id
+            biggest_cluster_size = size_of_current_cluster
+    return biggest_cluster_id
+
+def crowdguard(validate_users_id, args, global_model, all_models, update_params, dataset_train, dict_users, idxs_users, writer, iter):
+    binary_votes = []
+    for validator_id in validate_users_id: # global id
+        if args.gau_noise > 0:
+            noise_level = args.gau_noise / (args.num_users - 1) * validator_id
+            dataset, _ = load_data(args.dataset, args.data_dir, dict_users[validator_id], noise_level)
+        else:
+            dataset = DatasetSplit(dataset_train, dict_users[validator_id])
+        # print(dict_users[validator_id])
+        validator_train_loader = DataLoader(dataset, batch_size=args.local_bs, shuffle=True)
+        # print(dict_users[validator_id])
+        detected_suspicious_models = CrowdGuardClientValidation.validate_models(global_model,
+                                                                                all_models,
+                                                                                idxs_users.index(validator_id), # 将global id转换为相对id
+                                                                                validator_train_loader,
+                                                                                args.device)
+        detected_suspicious_models = sorted(detected_suspicious_models) # 相对id
+        votes_of_this_client = [] # 当前验证者对所有模型的投票
+        # TODO:用户索引的问题，不是所有客户端都参与训练
+        for r_id, g_id in enumerate(idxs_users):
+            if g_id == validator_id:
+                votes_of_this_client.append(1) # VOTE_FOR_BENIGN
+            elif r_id in detected_suspicious_models:
+                votes_of_this_client.append(0) # VOTE_FOR_POISONED
+            else:
+                votes_of_this_client.append(1) # VOTE_FOR_BENIGN
+        binary_votes.append(votes_of_this_client)
+    print(binary_votes)
+    ac_e = AgglomerativeClustering(n_clusters=2, distance_threshold=None,
+                                       compute_full_tree=True,
+                                       affinity="euclidean", memory=None, connectivity=None,
+                                       linkage='single',
+                                       compute_distances=True).fit(binary_votes)
+    ac_e_labels: list = ac_e.labels_.tolist()
+    agglomerative_result = create_cluster_map_from_labels(len(idxs_users), ac_e_labels)
+    print(f'Agglomerative Clustering: {agglomerative_result}')
+    agglomerative_negative_cluster = agglomerative_result[
+            determine_biggest_cluster(agglomerative_result)]
+    
+    db_scan_input_idx_list = agglomerative_negative_cluster
+    print(f'DBScan Input: {db_scan_input_idx_list}')
+    db_scan_input_list = [binary_votes[vote_id] for vote_id in db_scan_input_idx_list]
+
+    db = DBSCAN(eps=0.5, min_samples=1).fit(db_scan_input_list)
+    dbscan_clusters = create_cluster_map_from_labels(len(agglomerative_negative_cluster),
+                                                        db.labels_.tolist())
+    biggest_dbscan_cluster = dbscan_clusters[determine_biggest_cluster(dbscan_clusters)]
+    print(f'DBScan Clustering: {biggest_dbscan_cluster}')
+
+    single_sample_of_biggest_cluster = biggest_dbscan_cluster[0]
+    final_voting = db_scan_input_list[single_sample_of_biggest_cluster]
+    negatives = [i for i, vote in enumerate(final_voting) if vote == 1] # VOTE_FOR_BENIGN
+
+    print(f'Negatives: {negatives}')
+
+    record_TNR_TPR(args, negatives, writer, iter)
+
+    w_glob = global_model.to(args.device).state_dict()
+    w_glob = no_defence_balance([update_params[i] for i in negatives], w_glob)
 
     return w_glob

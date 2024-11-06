@@ -32,7 +32,7 @@ class LocalUpdate(object):
         self.args = args
         self.loss_func = nn.CrossEntropyLoss()
         self.selected_clients = []
-        if args.gau_noise > 0:
+        if args.gau_noise > 0 and net_id != -1:
             noise_level = args.gau_noise / (args.num_users - 1) * net_id
             dataset, _ = load_data(args.dataset, args.data_dir, idxs, noise_level)
         else:

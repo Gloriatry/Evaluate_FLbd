@@ -8,6 +8,27 @@ import torch.nn.functional as F
 import torch.nn.init as init
 import math
 
+class SequentialWithInternalStatePrediction(nn.Sequential):
+    """
+    Adapted version of Sequential that implements the function predict_internal_states
+    """
+
+    def predict_internal_states(self, x):
+        """
+        applies the submodules on the input. Compared to forward, this function also returns
+        all intermediate outputs
+        """
+        result = []
+        for module in self:
+            x = module(x)
+            # We can define our layer as we want. We selected Convolutional and
+            # Linear Modules as layers here.
+            # Differs for every model architecture.
+            # Can be defined by the defender.
+            if isinstance(module, nn.Conv2d) or isinstance(module, nn.Linear):
+                result.append(x)
+        return result, x
+
 class BasicBlock(nn.Module):
     expansion = 1
 
@@ -124,7 +145,8 @@ class ResNet(SimpleNet):
         for stride in strides:
             layers.append(block(self.in_planes, planes, stride))
             self.in_planes = planes * block.expansion
-        return nn.Sequential(*layers)
+        # return nn.Sequential(*layers)
+        return SequentialWithInternalStatePrediction(*layers)
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -139,6 +161,26 @@ class ResNet(SimpleNet):
         # return F.softmax(out, dim=1)
         # for regular output
         return out
+
+    def predict_internal_states(self, x):
+        result = []
+        x = self.conv1(x)
+        result.append(x)
+        x = F.relu(self.bn1(x))
+        res, x = self.layer1.predict_internal_states(x)
+        result += res
+        res, x = self.layer2.predict_internal_states(x)
+        result += res
+        res, x = self.layer3.predict_internal_states(x)
+        result += res
+        res, x = self.layer4.predict_internal_states(x)
+        result += res
+        x = F.avg_pool2d(x, 4)
+        x = x.view(x.size(0), -1)
+        x = self.linear(x)
+        result.append(x)
+
+        return result
 
 # def ResNet18():
 #     return ResNet(BasicBlock, [2, 2, 2, 2])
@@ -330,4 +372,83 @@ class MnistNet(nn.Module):
         # normal return:
         return F.log_softmax(x, dim=1)
         # soft max is used for generate SDT data
-        # return F.softmax(x, dim=1)     
+        # return F.softmax(x, dim=1)    
+
+    def predict_internal_states(self, x):
+        result = []
+        x = self.conv1(x)
+        result.append(x)
+        x = F.relu(x)
+        x = F.max_pool2d(x, 2, 2)
+        x = self.conv2(x)
+        result.append(x)
+        x = F.relu(x)
+        x = F.max_pool2d(x, 2, 2)
+        x = x.view(-1, 4 * 4 * 50)
+        x = self.fc1(x)
+        result.append(x)
+        x = F.relu(x)
+        x = self.fc2(x)
+        result.append(x)
+
+        return result
+
+# class MnistNet(nn.Module):
+#     # def __init__(self, name=None, created_time=None):
+#     #     super(MnistNet, self).__init__(f'{name}_Simple', created_time)
+
+#     #     self.conv1 = nn.Conv2d(1, 20, 5, 1)
+#     #     self.conv2 = nn.Conv2d(20, 50, 5, 1)
+#     #     self.fc1 = nn.Linear(4 * 4 * 50, 500)
+#     #     self.fc2 = nn.Linear(500, 10)
+#     #     # self.fc2 = nn.Linear(28*28, 10)
+
+#     def __init__(self):
+#         super(MnistNet, self).__init__()
+
+#         # self.conv1 = nn.Conv2d(1, 20, 5, 1)
+#         # self.conv2 = nn.Conv2d(20, 50, 5, 1)
+#         # self.fc1 = nn.Linear(4 * 4 * 50, 500)
+#         # self.fc2 = nn.Linear(500, 10)
+
+#         self.features = SequentialWithInternalStatePrediction(
+#             nn.Conv2d(1, 20, 5, 1),
+#             nn.ReLU(inplace=True),
+#             nn.MaxPool2d(kernel_size=2),
+#             nn.Conv2d(20, 50, 5, 1),
+#             nn.ReLU(inplace=True),
+#             nn.MaxPool2d(kernel_size=2),
+#         )
+#         self.classifier = SequentialWithInternalStatePrediction(
+#             nn.Linear(4 * 4 * 50, 500),
+#             nn.ReLU(inplace=True),
+#             nn.Linear(500, 10),
+#         )
+
+#     def forward(self, x):
+#         x = self.features(x)
+#         x = x.view(-1, 4 * 4 * 50)
+#         x = self.classifier(x)
+#         # x = F.relu(self.conv1(x))
+#         # x = F.max_pool2d(x, 2, 2)
+#         # x = F.relu(self.conv2(x))
+#         # x = F.max_pool2d(x, 2, 2)
+#         # x = x.view(-1, 4 * 4 * 50)
+#         # # x = x.view(-1, 32 * 7 * 7)
+#         # x = F.relu(self.fc1(x))
+#         # x = self.fc2(x)
+
+#         # in_features = 28 * 28
+#         # x = x.view(-1, in_features)
+#         # x = self.fc2(x)
+
+#         # normal return:
+#         return F.log_softmax(x, dim=1)
+#         # soft max is used for generate SDT data
+#         # return F.softmax(x, dim=1)
+    
+#     def predict_internal_states(self, x):
+#         result, x = self.features.predict_internal_states(x)
+#         x = x.view(-1, 4 * 4 * 50)
+#         result += self.classifier.predict_internal_states(x)[0]
+#         return result

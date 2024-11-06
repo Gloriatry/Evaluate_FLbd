@@ -234,7 +234,7 @@ def non_iid_distribution_client(group_proportion, num_clients, num_classes):
 #     # self.draw_dirichlet_plot(no_classes,no_participants,image_nums,alpha)
 #     return per_participant_list
 
-def dirichlet(dataset_train, no_participants, alpha):
+def dirichlet(args, dataset_train, no_participants, alpha):
     min_size = 0
     min_require_size = 10
     # K = 10
@@ -248,6 +248,8 @@ def dirichlet(dataset_train, no_participants, alpha):
     data_classes = {}
     for ind, x in enumerate(dataset_train):
         _, label = x
+        if args.dataset == 'emnist':
+            label = label.item()
         if label in data_classes:
             data_classes[label].append(ind)
         else:
@@ -289,12 +291,14 @@ def dirichlet(dataset_train, no_participants, alpha):
     
     return net_dataidx_map
 
-def label_num_noniid(heter, dataset_train, n_parties):
+def label_num_noniid(args, heter, dataset_train, n_parties):
     num = eval(heter[13:])
     print(f"now split in noniid-#label{num} mode")
     data_classes = {}
     for ind, x in enumerate(dataset_train):
         _, label = x
+        if args.dataset == 'emnist':
+            label = label.item()
         if label in data_classes:
             data_classes[label].append(ind)
         else:

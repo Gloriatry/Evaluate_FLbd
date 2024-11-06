@@ -12,7 +12,7 @@ from models.Update import LocalUpdate
 from utils.info import print_exp_details, write_info_to_accfile, get_base_info
 from utils.options import args_parser
 from utils.sampling import homo, one_label_expert, dirichlet, label_num_noniid, quantity_noniid
-from utils.defense import fltrust, multi_krum, get_update, RLR, flame, multi_metrics, fl_defender
+from utils.defense import fltrust, multi_krum, get_update, RLR, flame, multi_metrics, fl_defender, crowdguard
 from utils.semantic_backdoor import load_poisoned_dataset
 from utils.load_data import load_data
 import torch
@@ -218,7 +218,8 @@ if __name__ == '__main__':
     data_dir = '../project/data/'
     args.data_dir = data_dir+args.dataset
     dataset_train, dataset_test = load_data(args.dataset, args.data_dir)
-    # print(len(dataset_test), len(dataset_train))
+    print(len(dataset_test), len(dataset_train))
+    # print(dataset_train[0][1])
 
     if args.attack == "edges":
         if args.dataset == 'cifar':
@@ -263,9 +264,9 @@ if __name__ == '__main__':
             # dict_users = np.load('./data/non_iid_cifar.npy', allow_pickle=True).item()
             dict_users = one_label_expert(np.array([data[1] for data in dataset_train]), args.num_users, class_num, args.alpha)
         elif args.heter == "dirichlet":
-            dict_users = dirichlet(dataset_train, args.num_users, args.alpha)
+            dict_users = dirichlet(args, dataset_train, args.num_users, args.alpha)
         elif args.heter > "noniid-#label0" and args.heter <= "noniid-#label99":
-            dict_users = label_num_noniid(args.heter, dataset_train, args.num_users)
+            dict_users = label_num_noniid(args, args.heter, dataset_train, args.num_users)
         elif args.heter == "quantity":
             dict_users = quantity_noniid(dataset_train, args.num_users, args.alpha)
         else:
@@ -291,7 +292,7 @@ if __name__ == '__main__':
     # else:
     #     exit('Error: unrecognized model')
 
-    if args.dataset == 'cifar' or args.dataset == 'tinyimagenet':
+    if args.dataset == 'cifar' or args.dataset == 'tinyimagenet' or args.dataset == 'cinic':
         net_glob = ResNet18().to(args.device)
     elif args.dataset == 'emnist' or args.dataset == 'mnist':
         net_glob = MnistNet().to(args.device)
@@ -319,6 +320,8 @@ if __name__ == '__main__':
     # filename = './'+args.save+'/accuracy_file_{}.txt'.format(base_info)
     
     if args.init != 'None':
+        model_filename = f'model_{args.heter}_{args.alpha}_{args.gau_noise}_{args.lr_b}_{args.local_ep_b}.pt.tar.epoch_{args.start_attack}'
+        args.init = os.path.join(args.init + args.dataset, model_filename)
         param = torch.load(args.init, map_location=args.device)
         net_glob.load_state_dict(param['state_dict'])
         start_epoch = param['epoch']+1
@@ -399,7 +402,7 @@ if __name__ == '__main__':
                     w_glob = RLR(copy.deepcopy(net_glob), w_updates, args)
                 elif args.defence == 'fltrust':
                     local = LocalUpdate(
-                        args=args, net_id=0, dataset=dataset_test, idxs=central_dataset)
+                        args=args, net_id=-1, dataset=dataset_test, idxs=central_dataset)
                     cnet, fltrust_norm, loss = local.train(
                         net=copy.deepcopy(net_glob).to(args.device))
                     fltrust_norm = get_update(fltrust_norm, w_glob)
@@ -410,6 +413,9 @@ if __name__ == '__main__':
                     w_glob = multi_metrics(net_list, w_updates, w_glob, args, writer, iter)
                 elif args.defence == 'fl-defender':
                     w_glob = fl_defender(copy.deepcopy(net_glob), net_list, w_updates, args, writer, writer_file_name, iter)
+                elif args.defence == 'crowdguard':
+                    validate_users_id = idxs_users  # 此轮参与训练的所有客户端为验证者
+                    w_glob = crowdguard(validate_users_id, args, copy.deepcopy(net_glob), net_list, w_updates, dataset_train, dict_users, idxs_users, writer, iter)
                 else:
                     print("Wrong Defense Method")
                     os._exit(0)

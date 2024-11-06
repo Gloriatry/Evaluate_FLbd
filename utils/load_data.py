@@ -305,10 +305,30 @@ def load_data(dataset, datadir, dataidxs=None, noise_level=0, net_id=None, total
             transforms.Normalize((0.1307,), (0.3081,)),
             AddGaussianNoise(0., noise_level, net_id, total)
         ])
+    elif dataset == 'cinic':
+        dl_obj = ImageFolder_custom
+        cinic_mean = [0.47889522, 0.47227842, 0.43047404]
+        cinic_std = [0.24205776, 0.23828046, 0.25874835]
+        normalize = transforms.Normalize(mean=cinic_mean, std=cinic_std)
+
+        transform_test = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=cinic_mean, std=cinic_std)
+        ])
+
+        transform_train = transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=cinic_mean, std=cinic_std)
+        ])
     
     if dataset == "tinyimagenet":
         dataset_train = dl_obj(datadir+'/train/', dataidxs=dataidxs, transform=transform_train)
         dataset_test = dl_obj(datadir+'/val/', transform=transform_test)
+    elif dataset == 'cinic':
+        dataset_train = dl_obj(datadir+'/train/', dataidxs=dataidxs, transform=transform_train)
+        dataset_test = dl_obj(datadir+'/test/', transform=transform_test)
     else:
         dataset_train = dl_obj(datadir, dataidxs=dataidxs, train=True, transform=transform_train, download=True)
         dataset_test = dl_obj(datadir, train=False, transform=transform_test, download=True)
