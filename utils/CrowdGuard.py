@@ -9,6 +9,7 @@ from sklearn import preprocessing
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.decomposition import PCA
 from torch import cosine_similarity
+import os
 
 class DistanceMetric(str, Enum):
     """Enum to identify distance metrics necessary in this project"""
@@ -39,6 +40,47 @@ class DistanceHandler:
             return DistanceHandler.__get_euclid_distance(t1, t2)
 
         raise Exception(f"Extractor for {distance} not implemented yet.")
+
+def plot_HLBIM(args, file_name, dis_type, validator_idx, plot_round, iter, HLBIM, ori_indices):
+    file_path = "/root/project/epics/" + file_name
+    if not os.path.exists(file_path):    
+        os.makedirs(file_path)
+    pic_path = os.path.join(file_path, f'{dis_type}_validator{validator_idx}_iter{iter}_prune{plot_round}.pdf')
+    median_val = np.median(HLBIM)
+    fig = plt.figure()
+    ax = fig.add_axes([0.2, 0.2, 0.6, 0.6])
+    num_clients = max(int(args.frac * args.num_users), 1)
+    num_malicious_clients = int(args.malicious * num_clients)
+    num_benign_clients = num_clients - num_malicious_clients
+    malicious_plotted = False
+    benign_plotted = False
+    for i in range(len(HLBIM)):
+        if ori_indices[i] < num_malicious_clients:
+            ax.scatter(i, HLBIM[i], c='r', marker='^')
+            malicious_plotted = True
+        else:
+            ax.scatter(i, HLBIM[i], c='b', marker='o')
+            benign_plotted = True
+    ax.axhline(y=median_val, color='black', linestyle='--', label='Median')
+    ax.set_xticks([])
+    ax.tick_params(axis='y', labelsize=15)
+    ax.set_ylabel('PCA(HLBIM)[0]', fontsize=17)
+    # 构建图例
+    legend_handles = []
+    legend_labels = []
+    if malicious_plotted:
+        legend_handles.append(plt.Line2D([0], [0], color='r', marker='^', linestyle='None'))
+        legend_labels.append(u'Malicious Models')
+    if benign_plotted:
+        legend_handles.append(plt.Line2D([0], [0], color='b', marker='o', linestyle='None'))
+        legend_labels.append(u'Benign Models')
+    legend_handles.append(plt.Line2D([0], [0], color='black', linestyle='--'))  # 添加中位数横线的图例（如果需要）
+    legend_labels.append('Median')
+    
+    # 添加图例到轴
+    ax.legend(handles=legend_handles, labels=legend_labels)
+    plt.savefig(pic_path)
+
 
 class CrowdGuardClientValidation:
     @staticmethod
@@ -224,10 +266,10 @@ class CrowdGuardClientValidation:
 
     @staticmethod
     def __prune_poisoned_models(num_layers, total_number_of_clients, own_client_index,
-                                distances_by_metric, verbose=False):
+                                distances_by_metric, file_name, args, iter, verbose=False):
         detected_poisoned_models = []
         for distance_type in distances_by_metric.keys():
-
+            plotround = 1
             # First load the distance Matrix for this client and the samples by labels.
             distance_matrix_la_m_l = distances_by_metric[distance_type]
 
@@ -293,12 +335,18 @@ class CrowdGuardClientValidation:
                 pca.fit(scaled_data)
                 pca_data = pca.transform(scaled_data)
 
+                # print("PCA dimension", pca_data.shape)
                 cluster_input = []
                 cluster_input_plain = []
                 pca_one_data = pca_data.T[0]
+                # print("PCA one dimension", pca_one_data.shape)
                 for pca_one_value in pca_one_data:
                     cluster_input.append([pca_one_value])
                     cluster_input_plain.append(pca_one_value)
+                
+                if iter % 100 == 1:
+                    plot_HLBIM(args, file_name, distance_type, own_client_index, plotround, iter, cluster_input_plain[:-1], pruned_client_indices)
+                    plotround += 1
 
                 # Significance tests
                 median_val = np.median(cluster_input_plain)
@@ -424,7 +472,7 @@ class CrowdGuardClientValidation:
         return list(set(detected_poisoned_models))  # 相对id
 
     @staticmethod
-    def validate_models(global_model, models, own_client_index, local_data, device):
+    def validate_models(global_model, models, own_client_index, local_data, device, file_name, args, iter):
         '''
         以一个验证者为单位
         '''
@@ -443,5 +491,8 @@ class CrowdGuardClientValidation:
             distances_by_metric[dist_type] = calculated_distances
         result = CrowdGuardClientValidation.__prune_poisoned_models(num_layers, len(models),
                                                                     own_client_index,
-                                                                    distances_by_metric)
+                                                                    distances_by_metric,
+                                                                    file_name,
+                                                                    args,
+                                                                    iter)
         return result

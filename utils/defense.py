@@ -152,6 +152,24 @@ def no_defence_balance(params, global_parameters):
 
     return global_parameters
 
+def no_defence_weight(params, global_parameters, weights):
+    total_num = len(params)
+    sum_parameters = None
+    for i in range(total_num):
+        if sum_parameters is None:
+            sum_parameters = {}
+            for key, var in params[i].items():
+                sum_parameters[key] = var.clone() * weights[i]
+        else:
+            for var in sum_parameters:
+                sum_parameters[var] = sum_parameters[var] + params[i][var] * weights[i]
+    for var in global_parameters:
+        if var.split('.')[-1] == 'num_batches_tracked':
+            global_parameters[var] = params[0][var]
+            continue
+        global_parameters[var] += (sum_parameters[var] / sum(weights))
+
+    return global_parameters
 
 def multi_krum(gradients, n_attackers, args, multi_k=False):
 
@@ -651,7 +669,7 @@ def determine_biggest_cluster(clustering):
             biggest_cluster_size = size_of_current_cluster
     return biggest_cluster_id
 
-def crowdguard(validate_users_id, args, global_model, all_models, update_params, dataset_train, dict_users, idxs_users, writer, iter):
+def crowdguard(validate_users_id, args, global_model, all_models, update_params, dataset_train, dict_users, idxs_users, writer, file_name, iter):
     binary_votes = []
     for validator_id in validate_users_id: # global id
         if args.gau_noise > 0:
@@ -666,7 +684,10 @@ def crowdguard(validate_users_id, args, global_model, all_models, update_params,
                                                                                 all_models,
                                                                                 idxs_users.index(validator_id), # 将global id转换为相对id
                                                                                 validator_train_loader,
-                                                                                args.device)
+                                                                                args.device,
+                                                                                file_name,
+                                                                                args,
+                                                                                iter)
         detected_suspicious_models = sorted(detected_suspicious_models) # 相对id
         votes_of_this_client = [] # 当前验证者对所有模型的投票
         # TODO:用户索引的问题，不是所有客户端都参与训练
@@ -712,3 +733,109 @@ def crowdguard(validate_users_id, args, global_model, all_models, update_params,
     w_glob = no_defence_balance([update_params[i] for i in negatives], w_glob)
 
     return w_glob
+
+def foolsgold(grads):
+    n_clients = grads.shape[0]
+    cs = smp.cosine_similarity(grads) - np.eye(n_clients)
+    maxcs = np.max(cs, axis=1)
+    # pardoning
+    for i in range(n_clients):
+        for j in range(n_clients):
+            if i == j:
+                continue
+            if maxcs[i] < maxcs[j]:
+                cs[i][j] = cs[i][j] * maxcs[i] / maxcs[j]
+    cs_max = np.max(cs, axis=1)
+    wv = 1 - (np.max(cs, axis=1))
+    wv[wv > 1] = 1
+    wv[wv < 0] = 0
+
+    # Rescale so that max value is wv
+    wv = wv / np.max(wv)
+    wv[(wv == 1)] = .99
+
+    # Logit function
+    wv = (np.log(wv / (1 - wv)) + 0.5)
+    wv[(np.isinf(wv) + wv > 1)] = 1
+    wv[(wv < 0)] = 0
+
+    return wv, cs_max
+
+class FoolsGold:
+    def __init__(self, num_users, use_memory=True):
+        self.memory = None
+        self.wv_history = []
+        self.num_users = num_users
+        self.use_memory = use_memory
+    
+    def score_gradients(self, global_model, local_models, idxs_users, update_params, args, writer, iter, file_name):
+        num_clients = max(int(args.frac * args.num_users), 1)
+        num_malicious_clients = int(args.malicious * num_clients)
+        num_benign_clients = num_clients - num_malicious_clients
+
+        global_model_par = list(global_model.parameters())
+        m = len(local_models)
+        grads = [None for i in range(m)]
+        for i in range(m):
+            grads[i]= (global_model_par[-2].cpu().data.numpy() - \
+                    list(local_models[i].parameters())[-2].cpu().data.numpy()).reshape(-1)
+        grads = np.asarray(grads)
+        if self.memory is None:
+            self.memory = np.zeros((self.num_users, len(grads[0])))
+        
+        self.memory[idxs_users]+= grads
+        if self.use_memory:
+            wv, cs_max = foolsgold(self.memory[idxs_users])
+        else:
+            wv, cs_max = foolsgold(grads)
+        self.wv_history.append(wv)
+
+        scores = wv
+        
+        # 记录与其他客户端相似度的最大值
+        file_path = "/root/project/efiles/" + file_name
+        if not os.path.exists(file_path):    
+            os.makedirs(file_path)
+        with open(os.path.join(file_path, "cs_max.txt"), 'a') as f:
+            f.write(', '.join(map(str, cs_max.tolist()))+'\n')
+            f.close()
+
+        # 按权重分数为0算TNR、TPR
+        benign_client = []
+        for i, score in enumerate(scores):
+            if score != 0:
+                benign_client.append(i)
+        args.psum += num_clients - len(benign_client)
+        args.nsum += len(benign_client)
+        fn = 0
+        for i in range(len(benign_client)):
+            if benign_client[i] < num_malicious_clients:
+                fn += 1
+            else:
+                args.tn += 1
+        args.tp += num_malicious_clients - fn
+        TPR = args.tp / args.psum
+        TNR = args.tn / args.nsum
+        writer.add_scalar("Metric/TPR", TPR, iter)
+        writer.add_scalar("Metric/TNR", TNR, iter)
+
+        # 按相对大小算TNR、TPR，分数更大的为良性
+        benign_client = np.argpartition(scores, -num_benign_clients)[-num_benign_clients:]
+        args.psum_fg += num_clients - len(benign_client)
+        args.nsum_fg += len(benign_client)
+        fn_fg = 0
+        for i in range(len(benign_client)):
+            if benign_client[i] < num_malicious_clients:
+                fn_fg += 1
+            else:
+                args.tn_fg += 1
+        args.tp_fg += num_malicious_clients - fn_fg
+        TPR_fg = args.tp_fg / args.psum_fg
+        TNR_fg = args.tn_fg / args.nsum_fg
+        writer.add_scalar("Metric/TPR_fg", TPR_fg, iter)
+        writer.add_scalar("Metric/TNR_fg", TNR_fg, iter)
+
+        w_glob = global_model.state_dict()
+        w_glob = no_defence_weight(update_params, w_glob, scores)
+        
+        return w_glob

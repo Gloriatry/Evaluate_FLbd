@@ -12,7 +12,7 @@ from models.Update import LocalUpdate
 from utils.info import print_exp_details, write_info_to_accfile, get_base_info
 from utils.options import args_parser
 from utils.sampling import homo, one_label_expert, dirichlet, label_num_noniid, quantity_noniid
-from utils.defense import fltrust, multi_krum, get_update, RLR, flame, multi_metrics, fl_defender, crowdguard
+from utils.defense import fltrust, multi_krum, get_update, RLR, flame, multi_metrics, fl_defender, crowdguard, FoolsGold
 from utils.semantic_backdoor import load_poisoned_dataset
 from utils.load_data import load_data
 import torch
@@ -219,6 +219,7 @@ if __name__ == '__main__':
     args.data_dir = data_dir+args.dataset
     dataset_train, dataset_test = load_data(args.dataset, args.data_dir)
     print(len(dataset_test), len(dataset_train))
+    print(dataset_train[0][0].shape)
     # print(dataset_train[0][1])
 
     if args.attack == "edges":
@@ -299,6 +300,9 @@ if __name__ == '__main__':
     else:
         exit('Error: unrecognized model')
     
+    total_params = sum(p.numel() for p in net_glob.parameters() if p.requires_grad)
+    print(f"Total number of parameters: {total_params}")
+
     # net_glob.train()
 
     # copy weights
@@ -320,7 +324,7 @@ if __name__ == '__main__':
     # filename = './'+args.save+'/accuracy_file_{}.txt'.format(base_info)
     
     if args.init != 'None':
-        model_filename = f'model_{args.heter}_{args.alpha}_{args.gau_noise}_{args.lr_b}_{args.local_ep_b}.pt.tar.epoch_{args.start_attack}'
+        model_filename = f'model_{args.heter}_{args.alpha}_{args.gau_noise}.pt.tar.epoch_{args.start_attack}'
         args.init = os.path.join(args.init + args.dataset, model_filename)
         param = torch.load(args.init, map_location=args.device)
         net_glob.load_state_dict(param['state_dict'])
@@ -348,6 +352,12 @@ if __name__ == '__main__':
     if args.defence == "multi-metrics":
         args.tn_ori = 0
         args.tp_ori = 0
+    if args.defence == "foolsgold":
+        fg = FoolsGold(args.num_users)
+        args.psum_fg = 0
+        args.nsum_fg = 0
+        args.tn_fg = 0
+        args.tp_fg = 0
 
     # if args.all_clients:
     #     print("Aggregation over all clients")
@@ -415,7 +425,9 @@ if __name__ == '__main__':
                     w_glob = fl_defender(copy.deepcopy(net_glob), net_list, w_updates, args, writer, writer_file_name, iter)
                 elif args.defence == 'crowdguard':
                     validate_users_id = idxs_users  # 此轮参与训练的所有客户端为验证者
-                    w_glob = crowdguard(validate_users_id, args, copy.deepcopy(net_glob), net_list, w_updates, dataset_train, dict_users, idxs_users, writer, iter)
+                    w_glob = crowdguard(validate_users_id, args, copy.deepcopy(net_glob), net_list, w_updates, dataset_train, dict_users, idxs_users, writer, writer_file_name, iter)
+                elif args.defence == 'foolsgold':
+                    w_glob = fg.score_gradients(copy.deepcopy(net_glob), net_list, idxs_users, w_updates, args, writer, iter, writer_file_name)
                 else:
                     print("Wrong Defense Method")
                     os._exit(0)
