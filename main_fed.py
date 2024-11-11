@@ -494,7 +494,7 @@ if __name__ == '__main__':
         model_dir = '/root/project/model_bank/'+args.dataset
         if not os.path.exists(model_dir):    
             os.makedirs(model_dir)
-        model_filename = f'model_{args.heter}_{args.alpha}_{args.gau_noise}_{args.lr_b}_{args.local_ep_b}.pt.tar.epoch_{args.epochs}'
+        model_filename = f'model_{args.heter}_{args.alpha}_{args.gau_noise}.pt.tar.epoch_{args.epochs}'
         model_save_dict = {
             'state_dict': net_glob.state_dict(),
             'epoch': args.epochs
