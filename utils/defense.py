@@ -144,6 +144,8 @@ def no_defence_balance(params, global_parameters):
         else:
             for var in sum_parameters:
                 sum_parameters[var] = sum_parameters[var] + params[i][var]
+    if sum_parameters is None:
+        return global_parameters
     for var in global_parameters:
         if var.split('.')[-1] == 'num_batches_tracked':
             global_parameters[var] = params[0][var]
@@ -163,6 +165,8 @@ def no_defence_weight(params, global_parameters, weights):
         else:
             for var in sum_parameters:
                 sum_parameters[var] = sum_parameters[var] + params[i][var] * weights[i]
+    if sum_parameters is None:
+        return global_parameters
     for var in global_parameters:
         if var.split('.')[-1] == 'num_batches_tracked':
             global_parameters[var] = params[0][var]
