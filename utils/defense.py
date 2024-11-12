@@ -82,21 +82,22 @@ def fltrust(update_params, central_param, global_model, args, writer, iter):
                 update_params[benign_client[i]][key] *= gama
     global_model = no_defence_balance([update_params[i] for i in benign_client], global_model)
 
-    args.psum += num_clients - len(benign_client)
-    args.nsum += len(benign_client)
-    fn = 0
-    for i in range(len(benign_client)):
-        if benign_client[i] < num_malicious_clients:
-            fn += 1
-        else:
-            args.tn += 1
-    args.tp += num_malicious_clients - fn
-    if args.psum == 0:
-        args.psum += 1e-10
-    TPR = args.tp / args.psum
-    TNR = args.tn / args.nsum
-    writer.add_scalar("Metric/TPR", TPR, iter)
-    writer.add_scalar("Metric/TNR", TNR, iter)
+    record_TNR_TPR(args, benign_client, writer, iter)
+    # args.psum += num_clients - len(benign_client)
+    # args.nsum += len(benign_client)
+    # fn = 0
+    # for i in range(len(benign_client)):
+    #     if benign_client[i] < num_malicious_clients:
+    #         fn += 1
+    #     else:
+    #         args.tn += 1
+    # args.tp += num_malicious_clients - fn
+    # if args.psum == 0:
+    #     args.psum += 1e-10
+    # TPR = args.tp / args.psum
+    # TNR = args.tn / args.nsum
+    # writer.add_scalar("Metric/TPR", TPR, iter)
+    # writer.add_scalar("Metric/TNR", TNR, iter)
 
     # if FLTrustTotalScore == 0:
     #     print(score_list)
@@ -379,6 +380,8 @@ def record_TNR_TPR(args, benign_client:list, writer, iter):
     TNR = args.tn / args.nsum
     writer.add_scalar("Metric/TPR", TPR, iter)
     writer.add_scalar("Metric/TNR", TNR, iter)
+    writer.add_scalar("Metric/TP", args.tp / (num_malicious_clients*(iter-args.start_defence)), iter)
+    writer.add_scalar("Metric/TN", args.tn / (num_benign_clients*(iter-args.start_defence)), iter)
 
 
 def flame(local_model, update_params, global_model, args, writer, file_name, iter):
@@ -450,19 +453,20 @@ def flame(local_model, update_params, global_model, args, writer, file_name, ite
         ax.set_ylabel('PCA Axis 2', fontsize=17)
         plt.savefig(os.path.join(file_path, str(iter)+'.pdf'))
 
-    args.psum += num_clients - len(benign_client)
-    args.nsum += len(benign_client)
-    fn = 0
-    for i in range(len(benign_client)):
-        if benign_client[i] < num_malicious_clients:
-            fn += 1
-        else:
-            args.tn += 1
-    args.tp += num_malicious_clients - fn
-    TPR = args.tp / args.psum
-    TNR = args.tn / args.nsum
-    writer.add_scalar("Metric/TPR", TPR, iter)
-    writer.add_scalar("Metric/TNR", TNR, iter)
+    record_TNR_TPR(args, benign_client, writer, iter)
+    # args.psum += num_clients - len(benign_client)
+    # args.nsum += len(benign_client)
+    # fn = 0
+    # for i in range(len(benign_client)):
+    #     if benign_client[i] < num_malicious_clients:
+    #         fn += 1
+    #     else:
+    #         args.tn += 1
+    # args.tp += num_malicious_clients - fn
+    # TPR = args.tp / args.psum
+    # TNR = args.tn / args.nsum
+    # writer.add_scalar("Metric/TPR", TPR, iter)
+    # writer.add_scalar("Metric/TNR", TNR, iter)
     
     clip_value = np.median(norm_list)
     for i in range(len(benign_client)):
@@ -534,19 +538,20 @@ def multi_metrics(net_list, update_params, global_model, args, writer, iter):
     topk_ind = np.argpartition(scores, p_num)[:p_num]
     topk_ind_ori = np.argpartition(scores_ori, p_num)[:p_num]
 
-    args.psum += num_clients - p_num
-    args.nsum += p_num
-    fn = 0
-    for i in range(p_num):
-        if topk_ind[i] < num_malicious_clients:
-            fn += 1
-        else:
-            args.tn += 1
-    args.tp += num_malicious_clients - fn
-    TPR = args.tp / args.psum
-    TNR = args.tn / args.nsum
-    writer.add_scalar("Metric/TPR", TPR, iter)
-    writer.add_scalar("Metric/TNR", TNR, iter)
+    record_TNR_TPR(args, topk_ind, writer, iter)
+    # args.psum += num_clients - p_num
+    # args.nsum += p_num
+    # fn = 0
+    # for i in range(p_num):
+    #     if topk_ind[i] < num_malicious_clients:
+    #         fn += 1
+    #     else:
+    #         args.tn += 1
+    # args.tp += num_malicious_clients - fn
+    # TPR = args.tp / args.psum
+    # TNR = args.tn / args.nsum
+    # writer.add_scalar("Metric/TPR", TPR, iter)
+    # writer.add_scalar("Metric/TNR", TNR, iter)
 
     # 记录不经过动态归一化操作的原分数作为对比
     fn_ori = 0
@@ -560,6 +565,8 @@ def multi_metrics(net_list, update_params, global_model, args, writer, iter):
     TNR = args.tn_ori / args.nsum
     writer.add_scalar("Metric/TPR_ori", TPR, iter)
     writer.add_scalar("Metric/TNR_ori", TNR, iter)
+    writer.add_scalar("Metric/TP_ori", args.tp_ori / (num_malicious_clients*(iter-args.start_defence)), iter)
+    writer.add_scalar("Metric/TN_ori", args.tn_ori / (num_benign_clients*(iter-args.start_defence)), iter)
 
     global_model = no_defence_balance([update_params[i] for i in topk_ind], global_model)
 
@@ -621,19 +628,20 @@ def fl_defender(global_model, local_models, update_params, args, writer, file_na
     p_num = num_benign_clients
     topk_ind = np.argpartition(scores, -p_num)[-p_num:]
     
-    args.psum += num_clients - p_num
-    args.nsum += p_num
-    fn = 0
-    for i in range(len(topk_ind)):
-        if topk_ind[i] < num_malicious_clients:
-            fn += 1
-        else:
-            args.tn += 1
-    args.tp += num_malicious_clients - fn
-    TPR = args.tp / args.psum
-    TNR = args.tn / args.nsum
-    writer.add_scalar("Metric/TPR", TPR, iter)
-    writer.add_scalar("Metric/TNR", TNR, iter)
+    record_TNR_TPR(args, topk_ind, writer, iter)
+    # args.psum += num_clients - p_num
+    # args.nsum += p_num
+    # fn = 0
+    # for i in range(len(topk_ind)):
+    #     if topk_ind[i] < num_malicious_clients:
+    #         fn += 1
+    #     else:
+    #         args.tn += 1
+    # args.tp += num_malicious_clients - fn
+    # TPR = args.tp / args.psum
+    # TNR = args.tn / args.nsum
+    # writer.add_scalar("Metric/TPR", TPR, iter)
+    # writer.add_scalar("Metric/TNR", TNR, iter)
     
     w_glob = global_model.state_dict()
     w_glob = no_defence_balance([update_params[i] for i in topk_ind], w_glob)
@@ -809,19 +817,20 @@ class FoolsGold:
         for i, score in enumerate(scores):
             if score != 0:
                 benign_client.append(i)
-        args.psum += num_clients - len(benign_client)
-        args.nsum += len(benign_client)
-        fn = 0
-        for i in range(len(benign_client)):
-            if benign_client[i] < num_malicious_clients:
-                fn += 1
-            else:
-                args.tn += 1
-        args.tp += num_malicious_clients - fn
-        TPR = args.tp / args.psum
-        TNR = args.tn / args.nsum
-        writer.add_scalar("Metric/TPR", TPR, iter)
-        writer.add_scalar("Metric/TNR", TNR, iter)
+        record_TNR_TPR(args, benign_client, writer, iter)
+        # args.psum += num_clients - len(benign_client)
+        # args.nsum += len(benign_client)
+        # fn = 0
+        # for i in range(len(benign_client)):
+        #     if benign_client[i] < num_malicious_clients:
+        #         fn += 1
+        #     else:
+        #         args.tn += 1
+        # args.tp += num_malicious_clients - fn
+        # TPR = args.tp / args.psum
+        # TNR = args.tn / args.nsum
+        # writer.add_scalar("Metric/TPR", TPR, iter)
+        # writer.add_scalar("Metric/TNR", TNR, iter)
 
         # 按相对大小算TNR、TPR，分数更大的为良性
         benign_client = np.argpartition(scores, -num_benign_clients)[-num_benign_clients:]
@@ -838,6 +847,8 @@ class FoolsGold:
         TNR_fg = args.tn_fg / args.nsum_fg
         writer.add_scalar("Metric/TPR_fg", TPR_fg, iter)
         writer.add_scalar("Metric/TNR_fg", TNR_fg, iter)
+        writer.add_scalar("Metric/TP_fg", args.tp_fg / (num_malicious_clients*(iter-args.start_defence)), iter)
+        writer.add_scalar("Metric/TN_fg", args.tn_fg / (num_benign_clients*(iter-args.start_defence)), iter)
 
         w_glob = global_model.state_dict()
         w_glob = no_defence_weight(update_params, w_glob, scores)
