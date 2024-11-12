@@ -527,7 +527,7 @@ def multi_metrics(net_list, update_params, global_model, args, writer, iter):
     for i, g_i in enumerate(vectorize_nets):
         t = tri_distance[i]
         ma_dis = torch.matmul(torch.matmul(t.unsqueeze(0), inv_matrix), t.unsqueeze(0).T).item()
-        ori_dis = torch.matmul(t, t.T)
+        ori_dis = torch.matmul(t, t.T).item()
         scores.append(ma_dis)
         scores_ori.append(ori_dis)
 
