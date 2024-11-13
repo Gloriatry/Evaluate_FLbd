@@ -376,6 +376,8 @@ def record_TNR_TPR(args, benign_client:list, writer, iter):
         else:
             args.tn += 1
     args.tp += num_malicious_clients - fn
+    if args.psum == 0:
+        args.psum += 1e-10
     TPR = args.tp / args.psum
     TNR = args.tn / args.nsum
     writer.add_scalar("Metric/TPR", TPR, iter)
