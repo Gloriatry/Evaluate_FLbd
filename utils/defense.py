@@ -936,7 +936,7 @@ def flshield(helper, args, global_model, update_params, w_locals, idxs_users, it
         else:
             cos_sims = []
             for local_model_id in range(len(idxs_users)):
-                cos_sims.append(cos_torch(grads[local_model_id], grads[clusters_agg[idx][0]]))
+                cos_sims.append(cos_torch(grads[local_model_id], grads[clusters_agg[idx][0]]).item())
             cos_sims = np.array(cos_sims)
             # cos_sims = np.array(cosine_similarity(grads, [grads[clusters_agg[idx][0]]])).flatten()
             # logger.info(f'cos_sims by order for client {self.clusters_agg[idx][0]}: {cos_sims}')
