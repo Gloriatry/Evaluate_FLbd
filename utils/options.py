@@ -61,7 +61,7 @@ def args_parser():
                      help="fraction of dataset to corrupt for backdoor attack, 1.0 for layer attack")
    
    parser.add_argument('--attack_label', type=int, default=5,
-                        help="trigger for which label")
+                        help="trigger for which label") # loan 7
    # attack_goal=-1 is all to one
    parser.add_argument('--attack_goal', type=int, default=-1,
                         help="trigger to which label")
@@ -82,8 +82,9 @@ def args_parser():
                         default='avg', help="strategy of defence")
    parser.add_argument('--start_defence', type=int, default=200,
                         help="which epoch to start defence")
-
-
+   # flshield
+   parser.add_argument('--bijective', action='store_true')
+   parser.add_argument('--clustering_methods', type=str, default=None)
 
 
 

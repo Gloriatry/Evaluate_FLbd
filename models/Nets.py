@@ -7,6 +7,7 @@ from torch import nn
 import torch.nn.functional as F
 import torch.nn.init as init
 import math
+import numpy as np
 
 class SequentialWithInternalStatePrediction(nn.Sequential):
     """
@@ -92,6 +93,18 @@ class SimpleNet(nn.Module):
         super(SimpleNet, self).__init__()
         self.created_time = created_time
         self.name=name
+
+    def copy_params(self, state_dict, coefficient_transfer=100):
+
+        own_state = self.state_dict()
+
+        for name, param in state_dict.items():
+            if name in own_state:
+                shape = param.shape
+                #random_tensor = (torch.cuda.FloatTensor(shape).random_(0, 100) <= coefficient_transfer).type(torch.cuda.FloatTensor)
+                # negative_tensor = (random_tensor*-1)+1
+                # own_state[name].copy_(param)
+                own_state[name].copy_(param.clone())
 
 # class ResNet(nn.Module):
 #     def __init__(self, block, num_blocks, num_classes=10):
@@ -337,7 +350,7 @@ class CNN_MNIST(nn.Module):
 
 
 
-class MnistNet(nn.Module):
+class MnistNet(SimpleNet):
     # def __init__(self, name=None, created_time=None):
     #     super(MnistNet, self).__init__(f'{name}_Simple', created_time)
 
@@ -452,3 +465,36 @@ class MnistNet(nn.Module):
 #         x = x.view(-1, 4 * 4 * 50)
 #         result += self.classifier.predict_internal_states(x)[0]
 #         return result
+
+class LoanNet(SimpleNet):
+    def __init__(self, in_dim=91, n_hidden_1=46, n_hidden_2=23, out_dim=9, name=None, created_time=None):
+    # def __init__(self, in_dim=97, n_hidden_1=46, n_hidden_2=23, out_dim=9, name=None, created_time=None):
+        super(LoanNet, self).__init__(f'{name}_Simple', created_time)
+        self.layer1 = SequentialWithInternalStatePrediction(nn.Linear(in_dim, n_hidden_1),
+                                    nn.Dropout(0.5), # drop 50% of the neuron to avoid over-fitting
+                                    nn.ReLU())
+        self.layer2 = SequentialWithInternalStatePrediction(nn.Linear(n_hidden_1, n_hidden_2),
+                                    nn.Dropout(0.5),
+                                    nn.ReLU())
+        self.layer3 = SequentialWithInternalStatePrediction(nn.Linear(n_hidden_2, out_dim))
+
+    def forward(self, x):
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        if np.isnan(np.sum(x.data.cpu().numpy())):
+            print(x)
+            raise ValueError()
+        return x
+    
+    def predict_internal_states(self, x):
+        result = []
+
+        res, x = self.layer1.predict_internal_states(x)
+        result += res
+        res, x = self.layer2.predict_internal_states(x)
+        result += res
+        res, x = self.layer3.predict_internal_states(x)
+        result += res
+
+        return result

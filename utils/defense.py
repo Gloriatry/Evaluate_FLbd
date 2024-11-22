@@ -9,11 +9,17 @@ import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE 
 from sklearn.decomposition import PCA
 import sklearn.metrics.pairwise as smp
+from sklearn.metrics.pairwise import cosine_distances, euclidean_distances, cosine_similarity
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import AgglomerativeClustering, DBSCAN
 from torch.utils.data import DataLoader, Dataset
 from utils.CrowdGuard import CrowdGuardClientValidation
 from utils.load_data import load_data
+from flshield_utils.cluster_grads import cluster_grads as cluster_function
+from flshield_utils.validation_test import validation_test
+from flshield_utils.impute_validation import impute_validation
+from flshield_utils.validation_processing import ValidationProcessor
+from tqdm import tqdm
 
 class DatasetSplit(Dataset):
     def __init__(self, dataset, idxs):
@@ -683,17 +689,20 @@ def determine_biggest_cluster(clustering):
             biggest_cluster_size = size_of_current_cluster
     return biggest_cluster_id
 
-def crowdguard(validate_users_id, args, global_model, all_models, update_params, dataset_train, dict_users, idxs_users, writer, file_name, iter):
+def crowdguard(helper, validate_users_id, args, global_model, all_models, update_params, dataset_train, dict_users, idxs_users, writer, file_name, iter):
     binary_votes = []
     for validator_id in validate_users_id: # global id
-        if args.gau_noise > 0:
-            noise_level = args.gau_noise / (args.num_users - 1) * validator_id
-            dataset, _ = load_data(args.dataset, args.data_dir, dict_users[validator_id], noise_level)
+        if args.dataset == 'loan':
+            validator_train_loader = helper.allStateHelperList[validator_id].get_trainloader()
         else:
-            dataset = DatasetSplit(dataset_train, dict_users[validator_id])
-        # print(dict_users[validator_id])
-        validator_train_loader = DataLoader(dataset, batch_size=args.local_bs, shuffle=True)
-        # print(dict_users[validator_id])
+            if args.gau_noise > 0:
+                noise_level = args.gau_noise / (args.num_users - 1) * validator_id
+                dataset, _ = load_data(args.dataset, args.data_dir, dict_users[validator_id], noise_level)
+            else:
+                dataset = DatasetSplit(dataset_train, dict_users[validator_id])
+            
+            validator_train_loader = DataLoader(dataset, batch_size=args.local_bs, shuffle=True)
+        
         detected_suspicious_models = CrowdGuardClientValidation.validate_models(global_model,
                                                                                 all_models,
                                                                                 idxs_users.index(validator_id), # 将global id转换为相对id
@@ -856,3 +865,206 @@ class FoolsGold:
         w_glob = no_defence_weight(update_params, w_glob, scores)
         
         return w_glob
+
+def weighted_average_oracle(points, weights, args):
+    tot_weights = torch.sum(weights)
+
+    weighted_updates= dict()
+
+    for name, data in points[0].items():
+        weighted_updates[name]=  torch.zeros_like(data)
+    for w, p in zip(weights, points): # 对每一个agent
+        for name, data in weighted_updates.items():
+            temp = (w / tot_weights).float().to(args.device)
+            temp= temp* (p[name].float())
+            # temp = w / tot_weights * p[name]
+            if temp.dtype!=data.dtype:
+                temp = temp.type_as(data)
+            data.add_(temp)
+
+    return weighted_updates
+
+def flshield(helper, args, global_model, update_params, w_locals, idxs_users, iter, writer, writer_file_name, dict_users=None, dataset_train=None):
+    w_glob = global_model.state_dict()
+    num_clients = max(int(args.frac * args.num_users), 1)
+    num_malicious_clients = int(args.malicious * num_clients)
+    cos_torch = torch.nn.CosineSimilarity(dim=0, eps=1e-6).to(args.device)
+
+    wv = np.zeros(len(idxs_users), dtype=np.float32)
+    grads = [parameters_dict_to_vector_flt(w_local) for w_local in w_locals]
+    norms = [torch.norm(grad, p=2).item() for grad in grads]
+
+    # clusters_agg是local_id
+    if args.bijective:
+        clusters_agg = [[i] for i in range(len(update_params))]
+        no_clustering = True
+    else:
+        clustering_method = args.clustering_methods if args.clustering_methods is not None else 'KMeans'
+        _, clusters_agg = cluster_function(grads, clustering_method)
+        no_clustering = False
+    
+    all_validator_evaluations = {}
+    evaluations_of_clusters = {}
+    count_of_class_for_validator = {}
+
+    for name in idxs_users:  # global_id
+        all_validator_evaluations[name] = []
+
+    evaluations_of_clusters[-1] = {}
+    for current_id, global_id in enumerate(tqdm(idxs_users, disable=True)):
+        val_score_by_class, val_score_by_class_per_example, count_of_class = validation_test(helper, args, global_model, global_id, dict_users, dataset_train)
+        val_score_by_class_per_example = [val_score_by_class_per_example[i] for i in range(args.class_num)]
+        all_validator_evaluations[global_id] += val_score_by_class_per_example
+        evaluations_of_clusters[-1][global_id] = [val_score_by_class[i] for i in range(args.class_num)]
+        if global_id not in count_of_class_for_validator.keys():
+            count_of_class_for_validator[global_id] = count_of_class
+
+    num_of_clusters = len(clusters_agg)
+    
+    adj_delta_models = []
+    weight_vecs_by_cluster = {}
+
+    for idx, cluster in enumerate(tqdm(clusters_agg, disable=False)):
+        evaluations_of_clusters[idx] = {}
+        agg_model = copy.deepcopy(global_model)
+        weight_vec = np.zeros(len(update_params), dtype=np.float32)
+
+        if len(cluster) != 1:  # cluster representative model
+            for i in range(len(update_params)):
+                if i in cluster:
+                    weight_vec[i] = 1/len(cluster)
+        else:
+            cos_sims = []
+            for local_model_id in range(len(idxs_users)):
+                cos_sims.append(cos_torch(grads[local_model_id], grads[clusters_agg[idx][0]]))
+            cos_sims = np.array(cos_sims)
+            # cos_sims = np.array(cosine_similarity(grads, [grads[clusters_agg[idx][0]]])).flatten()
+            # logger.info(f'cos_sims by order for client {self.clusters_agg[idx][0]}: {cos_sims}')
+            trust_scores = np.zeros(cos_sims.shape)
+            for i in range(len(cos_sims)):
+                # trust_scores[i] = cos_sims[i]/np.linalg.norm(grads[i])/np.linalg.norm(clean_server_grad)
+                trust_scores[i] = cos_sims[i]
+                trust_scores[i] = max(trust_scores[i], 0)
+
+            norm_ref = norms[clusters_agg[idx][0]]
+            clip_vals = [min(norm_ref/norm, 1) for norm in norms]
+            trust_scores = [ts * cv for ts, cv in zip(trust_scores, clip_vals)]
+            weight_vec = trust_scores
+
+            contrib_adjustment = 0.25
+
+            # logger.info(f'weight_vec: {weight_vec}')
+
+            # weight_vec = [min(1, elem * contrib_adjustment) for elem in weight_vec]
+            weight_vec[idx] = 1
+            others_contrib = sum([weight_vec[i] for i in range(len(weight_vec)) if i != idx])
+            weight_vec = [elem * contrib_adjustment/others_contrib for elem in weight_vec]
+            weight_vec[idx] = 1 - contrib_adjustment
+            # logger.info(f'weight_vec: {weight_vec}')
+            weight_vec = weight_vec / np.sum(weight_vec)
+            others_contrib = sum([weight_vec[i] for i in range(len(weight_vec)) if i != idx])
+            num_of_other_contrib = len([weight_vec[i] for i in range(len(weight_vec)) if i != idx and weight_vec[i] > 0])
+            # logger.info(f'contribution amount: {others_contrib} from {num_of_other_contrib} clients, own contrib: {weight_vec[idx]}')
+
+            # logger.info(f'weight_vec: {weight_vec}')
+        
+        weight_vecs_by_cluster[idx] = weight_vec.tolist()
+
+        aggregate_weights = weighted_average_oracle(update_params, torch.tensor(weight_vec), args)
+        adj_delta_models.append(aggregate_weights)
+
+        for name, data in agg_model.state_dict().items():
+            update_per_layer = aggregate_weights[name]
+            try:
+                data.add_(update_per_layer)
+            except:
+                data.add_(update_per_layer.to(data.dtype))
+        
+        for current_id, global_id in enumerate(tqdm(idxs_users, disable=True)):
+            val_score_by_class, val_score_by_class_per_example, count_of_class = validation_test(helper, args, agg_model, global_id, dict_users, dataset_train)
+            val_score_by_class_per_example = [val_score_by_class_per_example[i] for i in range(args.class_num)]
+
+            val_score_by_class_per_example = [-val_score_by_class_per_example[i]+all_validator_evaluations[global_id][i] for i in range(args.class_num)]
+                
+            all_validator_evaluations[global_id]+= val_score_by_class_per_example
+            evaluations_of_clusters[idx][global_id] = [-val_score_by_class[i]+evaluations_of_clusters[-1][global_id][i] for i in range(args.class_num)]
+    
+    # impute 
+    # evaluations_of_clusters: representative_models * validator
+    evaluations_of_clusters, count_of_class_for_validator = impute_validation(evaluations_of_clusters, count_of_class_for_validator, idxs_users, num_of_clusters, args.class_num, impute_method='iterative')
+    
+    # record each validator result
+    eval_tensor = torch.zeros((len(idxs_users), num_of_clusters, args.class_num)) # validator * representative_models
+    for i in range(len(idxs_users)):
+        for j in range(num_of_clusters):
+            for k in range(args.class_num):
+                eval_tensor[i][j][k] = evaluations_of_clusters[j][idxs_users[i]][k]/count_of_class_for_validator[idxs_users[i]][k] if count_of_class_for_validator[idxs_users[i]][k] !=0 else 0
+    val_rep_res, _ = torch.min(eval_tensor, dim=2)
+    if iter % 100 == 1:
+        for val_idx in range(val_rep_res.shape[0]):
+            val_res = val_rep_res[val_idx]
+            # plot eacj validator's result
+            file_path = "/root/project/epics/" + writer_file_name
+            if not os.path.exists(file_path):    
+                os.makedirs(file_path)
+            pic_path = os.path.join(file_path, f'validator{val_idx}_iter{iter}.pdf')
+            fig = plt.figure()
+            ax = fig.add_axes([0.2, 0.2, 0.6, 0.6])
+            for i in range(len(val_res)):
+                if i < num_malicious_clients:
+                    ax.scatter(i, val_res[i], c='r', marker='^')
+                else:
+                    ax.scatter(i, val_res[i], c='b', marker='o')
+            ax.set_xticks([])
+            ax.tick_params(axis='y', labelsize=15)
+            ax.set_ylabel('min(LIPC)', fontsize=17)
+            # 构建图例
+            legend_handles = []
+            legend_labels = []
+            legend_handles.append(plt.Line2D([0], [0], color='r', marker='^', linestyle='None'))
+            legend_labels.append(u'Malicious Models')
+            legend_handles.append(plt.Line2D([0], [0], color='b', marker='o', linestyle='None'))
+            legend_labels.append(u'Benign Models')
+            
+            # 添加图例到轴
+            ax.legend(handles=legend_handles, labels=legend_labels)
+            plt.savefig(pic_path)
+            plt.close(fig)
+
+    cluster_maliciousness = [len([idx for idx in cluster if idx < num_malicious_clients])/len(cluster) for cluster in clusters_agg]
+    validation_container = {
+            'evaluations_of_clusters': evaluations_of_clusters,
+            'count_of_class_for_validator': count_of_class_for_validator,
+            'names': idxs_users,
+            'num_of_classes': args.class_num,
+            'num_of_clusters': num_of_clusters,
+            'all_validator_evaluations': all_validator_evaluations,
+            'epoch': iter,
+            'params': args,
+            'cluster_maliciousness': cluster_maliciousness,
+            'adversarial_num': num_malicious_clients,
+        }
+
+    valProcessor = ValidationProcessor(validation_container=validation_container)
+    wv_by_cluster = valProcessor.run()
+
+    for idx, cluster in enumerate(clusters_agg):
+        for cl_id in cluster:
+            # wv[cl_id] = wv_by_cluster[idx]
+            if no_clustering:
+                wv[cl_id] = wv_by_cluster[cl_id]
+            else:
+                # wv[cl_id] = wv_by_cluster[idx] * len(cluster) * wv[cl_id]
+                wv[cl_id] = wv_by_cluster[idx]
+
+    wv = wv/np.sum(wv)
+
+    benign_client = []
+    for i, result in enumerate(wv):
+        if result > 0:
+            benign_client.append(i)
+    record_TNR_TPR(args, benign_client, writer, iter)
+
+    w_glob = no_defence_weight(update_params, w_glob, wv)
+
+    return w_glob

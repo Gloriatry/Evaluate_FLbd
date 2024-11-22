@@ -5,16 +5,19 @@
 from random import random
 from models.test import test_img, Mytest, Mytest_edge_test, Mytest_poison, Mytest_semantic_test
 from models.Fed import FedAvg
-from models.Nets import ResNet18, vgg19_bn, vgg19, get_model, MnistNet
+from models.Nets import ResNet18, vgg19_bn, vgg19, get_model, MnistNet, LoanNet
 
 from models.MaliciousUpdate import LocalMaliciousUpdate
 from models.Update import LocalUpdate
 from utils.info import print_exp_details, write_info_to_accfile, get_base_info
 from utils.options import args_parser
 from utils.sampling import homo, one_label_expert, dirichlet, label_num_noniid, quantity_noniid
-from utils.defense import fltrust, multi_krum, get_update, RLR, flame, multi_metrics, fl_defender, crowdguard, FoolsGold
+from utils.defense import fltrust, multi_krum, get_update, RLR, flame, multi_metrics, fl_defender, crowdguard, FoolsGold, flshield
 from utils.semantic_backdoor import load_poisoned_dataset
 from utils.load_data import load_data
+import loan_utils.load_data
+from loan_utils.loan_train import loan_LocalMaliciousUpdate, loan_LocalUpdate, loan_LocalSeverUpdate
+from loan_utils.loan_test import loan_Mytest, loan_Mytest_poison
 import torch
 from torchvision import datasets, transforms
 import numpy as np
@@ -215,12 +218,30 @@ if __name__ == '__main__':
     # else:
     #     exit('Error: unrecognized dataset')
     
-    data_dir = '../project/data/'
-    args.data_dir = data_dir+args.dataset
-    dataset_train, dataset_test = load_data(args.dataset, args.data_dir)
-    print(len(dataset_test), len(dataset_train))
-    print(dataset_train[0][0].shape)
+    if args.dataset == 'loan':
+        helper = loan_utils.load_data.LoanHelper()
+        helper.load_data(args)
+        data_num = 0
+        args.num_users = 51
+        for state_helper in helper.allStateHelperList:
+            data_num += len(state_helper.all_dataset.train_data)
+            data_num += len(state_helper.all_dataset.test_data)
+        print("record#", data_num)
+        dict_users = None
+        dataset_train = None
+    else:
+        helper = None
+        data_dir = '../project/data/'
+        args.data_dir = data_dir+args.dataset
+        dataset_train, dataset_test = load_data(args.dataset, args.data_dir)
+        print(len(dataset_test), len(dataset_train))
+        print(dataset_train[0][0].shape)
     # print(dataset_train[0][1])
+
+    if args.dataset == 'loan':
+        args.class_num = 9
+    else:
+        args.class_num = 10
 
     if args.attack == "edges":
         if args.dataset == 'cifar':
@@ -257,7 +278,7 @@ if __name__ == '__main__':
             dataset_train = torch.utils.data.Subset(dataset_train, remaining_indices)
             print('poison train and test data of green car loaded')
 
-    if args.attack == 'dba':
+    if args.attack == 'dba' and args.dataset != 'loan':
         if args.heter == "homo":
             # dict_users = np.load('./data/iid_cifar.npy', allow_pickle=True).item()
             dict_users = homo(dataset_train, args.num_users)
@@ -281,7 +302,7 @@ if __name__ == '__main__':
             for k, v in dict_users_o.items():
                 dict_users[k+adv_num] = v
 
-    img_size = dataset_train[0][0].shape
+    # img_size = dataset_train[0][0].shape
 
     # build model
     # if args.model == 'VGG' and args.dataset == 'cifar':
@@ -297,6 +318,8 @@ if __name__ == '__main__':
         net_glob = ResNet18().to(args.device)
     elif args.dataset == 'emnist' or args.dataset == 'mnist':
         net_glob = MnistNet().to(args.device)
+    elif args.dataset == 'loan':
+        net_glob = LoanNet().to(args.device)
     else:
         exit('Error: unrecognized model')
     
@@ -319,7 +342,8 @@ if __name__ == '__main__':
     #     backdoor_begin_acc = 100
     # else:
     #     backdoor_begin_acc = args.attack_begin  # overtake backdoor_begin_acc then attack
-    central_dataset = central_dataset_iid(dataset_test, args.server_dataset)
+    if args.dataset != 'loan':
+        central_dataset = central_dataset_iid(dataset_test, args.server_dataset)
     # base_info = get_base_info(args)
     # filename = './'+args.save+'/accuracy_file_{}.txt'.format(base_info)
     
@@ -362,7 +386,11 @@ if __name__ == '__main__':
     # if args.all_clients:
     #     print("Aggregation over all clients")
     #     w_locals = [w_glob for i in range(args.num_users)]
-    adversaries = list(np.random.choice(range(args.num_users), int(args.num_users * args.malicious), replace=False))
+    if args.dataset != 'loan':
+        adversaries = list(np.random.choice(range(args.num_users), int(args.num_users * args.malicious), replace=False))
+    else:
+        helper.adversarial_namelist = random.sample(helper.participants_list, int(args.num_users * args.malicious))
+        helper.benign_namelist = [x for x in helper.participants_list if x not in helper.adversarial_namelist]
     for iter in range(start_epoch, args.epochs):
         loss_locals = []
         w_locals = []
@@ -374,30 +402,49 @@ if __name__ == '__main__':
             attack_number = int(args.malicious * m)
         else:
             attack_number = 0
-        idxs_users = list(np.random.choice(adversaries, attack_number, replace=False)) + \
-                list(np.random.choice(list(set(range(args.num_users))-set(adversaries)), m - attack_number, replace=False))
+        if args.dataset != 'loan':
+            idxs_users = list(np.random.choice(adversaries, attack_number, replace=False)) + \
+                    list(np.random.choice(list(set(range(args.num_users))-set(adversaries)), m - attack_number, replace=False))
+        else:
+            idxs_users = random.sample(helper.adversarial_namelist, attack_number) + \
+                    random.sample(helper.benign_namelist, m - attack_number)
         
-        for num_turn, idx in enumerate(idxs_users):
-            if num_turn < attack_number:
-                # idx = random.randint(0, int(args.num_users * args.malicious))
-                # if args.attack == "dba":
-                #     num_dba_attacker = int(args.num_users * args.malicious)
-                #     dba_group = num_dba_attacker/4
-                #     idx = args.dba_sign % (4*dba_group)
-                #     args.dba_sign+=1
-                local = LocalMaliciousUpdate(args=args, net_id=idx, dataset=dataset_train, idxs=dict_users[idx], order=adversaries.index(idx))
-                inet, w, loss = local.train(
-                    net=copy.deepcopy(net_glob).to(args.device), test_img = test_img)
-                print("client", idx, "--attack--")
-            else:
-                local = LocalUpdate(
-                    args=args, net_id=idx, dataset=dataset_train, idxs=dict_users[idx])
-                inet, w, loss = local.train(
-                    net=copy.deepcopy(net_glob).to(args.device))
-            w_updates.append(get_update(w, w_glob))
-            w_locals.append(copy.deepcopy(w))
-            loss_locals.append(copy.deepcopy(loss))
-            net_list.append(copy.deepcopy(inet))
+        if args.dataset != 'loan':
+            for num_turn, idx in enumerate(idxs_users):
+                if num_turn < attack_number:
+                    # idx = random.randint(0, int(args.num_users * args.malicious))
+                    # if args.attack == "dba":
+                    #     num_dba_attacker = int(args.num_users * args.malicious)
+                    #     dba_group = num_dba_attacker/4
+                    #     idx = args.dba_sign % (4*dba_group)
+                    #     args.dba_sign+=1
+                    local = LocalMaliciousUpdate(args=args, net_id=idx, dataset=dataset_train, idxs=dict_users[idx], order=adversaries.index(idx))
+                    inet, w, loss = local.train(
+                        net=copy.deepcopy(net_glob).to(args.device), test_img = test_img)
+                    print("client", idx, "--attack--")
+                else:
+                    local = LocalUpdate(
+                        args=args, net_id=idx, dataset=dataset_train, idxs=dict_users[idx])
+                    inet, w, loss = local.train(
+                        net=copy.deepcopy(net_glob).to(args.device))
+                w_updates.append(get_update(w, w_glob))
+                w_locals.append(copy.deepcopy(w))
+                loss_locals.append(copy.deepcopy(loss))
+                net_list.append(copy.deepcopy(inet))
+        else:
+            for num_turn, state_key in enumerate(idxs_users):
+                if num_turn < attack_number:
+                    local = loan_LocalMaliciousUpdate(args, state_key, helper)
+                    inet, w, loss = local.train(copy.deepcopy(net_glob).to(args.device))
+                    print("client", state_key, "--attack--")
+                else:
+                    local = loan_LocalUpdate(args, state_key, helper)
+                    inet, w, loss = local.train(copy.deepcopy(net_glob).to(args.device))
+                w_updates.append(get_update(w, w_glob))
+                w_locals.append(copy.deepcopy(w))
+                loss_locals.append(copy.deepcopy(loss))
+                net_list.append(copy.deepcopy(inet))
+
 
         if args.defence == 'avg':  # no defence
             w_glob = FedAvg(w_locals)
@@ -411,10 +458,15 @@ if __name__ == '__main__':
                 elif args.defence == 'RLR':
                     w_glob = RLR(copy.deepcopy(net_glob), w_updates, args)
                 elif args.defence == 'fltrust':
-                    local = LocalUpdate(
-                        args=args, net_id=-1, dataset=dataset_test, idxs=central_dataset)
-                    cnet, fltrust_norm, loss = local.train(
-                        net=copy.deepcopy(net_glob).to(args.device))
+                    if args.dataset == 'loan':
+                        local = loan_LocalSeverUpdate(args, helper)
+                        cnet, fltrust_norm, loss = local.train(
+                            net=copy.deepcopy(net_glob).to(args.device))
+                    else:
+                        local = LocalUpdate(
+                            args=args, net_id=-1, dataset=dataset_test, idxs=central_dataset)
+                        cnet, fltrust_norm, loss = local.train(
+                            net=copy.deepcopy(net_glob).to(args.device))
                     fltrust_norm = get_update(fltrust_norm, w_glob)
                     w_glob = fltrust(w_updates, fltrust_norm, w_glob, args, writer, iter)
                 elif args.defence == 'flame':
@@ -425,9 +477,11 @@ if __name__ == '__main__':
                     w_glob = fl_defender(copy.deepcopy(net_glob), net_list, w_updates, args, writer, writer_file_name, iter)
                 elif args.defence == 'crowdguard':
                     validate_users_id = idxs_users  # 此轮参与训练的所有客户端为验证者
-                    w_glob = crowdguard(validate_users_id, args, copy.deepcopy(net_glob), net_list, w_updates, dataset_train, dict_users, idxs_users, writer, writer_file_name, iter)
+                    w_glob = crowdguard(helper, validate_users_id, args, copy.deepcopy(net_glob), net_list, w_updates, dataset_train, dict_users, idxs_users, writer, writer_file_name, iter)
                 elif args.defence == 'foolsgold':
                     w_glob = fg.score_gradients(copy.deepcopy(net_glob), net_list, idxs_users, w_updates, args, writer, iter, writer_file_name)
+                elif args.defence == 'flshield':
+                    w_glob = flshield(helper, args, copy.deepcopy(net_glob), w_updates, w_locals, idxs_users, iter, writer, writer_file_name, dict_users, dataset_train)
                 else:
                     print("Wrong Defense Method")
                     os._exit(0)
@@ -446,13 +500,17 @@ if __name__ == '__main__':
             # acc_test, test_loss, back_acc = test_img(
             #     net_glob, dataset_test, args, test_backdoor=True)
             
-            acc_test, test_loss = Mytest(net_glob, dataset_test, args)
-            if args.attack == "edges":
-                back_acc = Mytest_edge_test(net_glob, args)
-            elif args.attack == "semantic":
-                back_acc = Mytest_semantic_test(net_glob, args)
+            if args.dataset == 'loan':
+                acc_test, test_loss = loan_Mytest(net_glob, helper)
+                back_acc, _ = loan_Mytest_poison(net_glob, helper, args)
             else:
-                back_acc = Mytest_poison(net_glob, dataset_test, args)
+                acc_test, test_loss = Mytest(net_glob, dataset_test, args)
+                if args.attack == "edges":
+                    back_acc = Mytest_edge_test(net_glob, args)
+                elif args.attack == "semantic":
+                    back_acc = Mytest_semantic_test(net_glob, args)
+                else:
+                    back_acc = Mytest_poison(net_glob, dataset_test, args)
 
 
             print("Main accuracy: {:.2f}".format(acc_test))
