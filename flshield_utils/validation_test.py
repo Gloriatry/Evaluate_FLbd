@@ -146,6 +146,7 @@ def validation_test_fun(helper, args, network, given_test_loader=None, is_poison
 
 def validation_test(helper, args, target_model, validator_id, dict_users=None, dataset_train=None):
     if args.dataset == 'loan':
+        validator_id = helper.participants_list.index(validator_id)
         val_test_loader = helper.allStateHelperList[validator_id].get_trainloader()
     else:
         # _, val_test_loader = helper.train_data[validator_idx]

@@ -11,7 +11,8 @@ from sklearn.decomposition import PCA
 import sklearn.metrics.pairwise as smp
 from sklearn.metrics.pairwise import cosine_distances, euclidean_distances, cosine_similarity
 from sklearn.preprocessing import StandardScaler
-from sklearn.cluster import AgglomerativeClustering, DBSCAN
+from sklearn.cluster import AgglomerativeClustering, DBSCAN, KMeans
+from sklearn.metrics import silhouette_score
 from torch.utils.data import DataLoader, Dataset
 from utils.CrowdGuard import CrowdGuardClientValidation
 from utils.load_data import load_data
@@ -693,6 +694,7 @@ def crowdguard(helper, validate_users_id, args, global_model, all_models, update
     binary_votes = []
     for validator_id in validate_users_id: # global id
         if args.dataset == 'loan':
+            validator_id = helper.participants_list.index(validator_id)
             validator_train_loader = helper.allStateHelperList[validator_id].get_trainloader()
         else:
             if args.gau_noise > 0:
@@ -791,7 +793,10 @@ class FoolsGold:
         self.num_users = num_users
         self.use_memory = use_memory
     
-    def score_gradients(self, global_model, local_models, idxs_users, update_params, args, writer, iter, file_name):
+    def score_gradients(self, helper, global_model, local_models, idxs_users, update_params, args, writer, iter, file_name):
+        if args.dataset == 'loan':
+            user_indices = [helper.participants_list.index(user) for user in idxs_users]
+            idxs_users = user_indices
         num_clients = max(int(args.frac * args.num_users), 1)
         num_malicious_clients = int(args.malicious * num_clients)
         num_benign_clients = num_clients - num_malicious_clients
@@ -1066,5 +1071,151 @@ def flshield(helper, args, global_model, update_params, w_locals, idxs_users, it
     record_TNR_TPR(args, benign_client, writer, iter)
 
     w_glob = no_defence_weight(update_params, w_glob, wv)
+
+    return w_glob
+
+def lbfgs(S_k_list, Y_k_list, v, device):  # n=window size, k=parameter size
+    v = v.unsqueeze(0)
+    curr_S_k = torch.stack(S_k_list, dim=0)  # (n, k)
+    curr_Y_k = torch.stack(Y_k_list, dim=0)  
+
+    S_k_time_Y_k = torch.mm(curr_S_k, curr_Y_k.T)  # (n, n)
+    S_k_time_S_k = torch.mm(curr_S_k, curr_S_k.T)  
+
+    R_k = torch.triu(S_k_time_Y_k)  # 上三角矩阵 (n, n)
+    L_k = S_k_time_Y_k - R_k  # 下三角矩阵 (n, n)
+
+    sigma_k = Y_k_list[-1] @ S_k_list[-1].T / (S_k_list[-1] @ S_k_list[-1].T)  # 标量
+    print("fenmu:", S_k_list[-1] @ S_k_list[-1].T)
+
+    D_k_diag = torch.diag(S_k_time_Y_k)  # 对角线元素
+
+    upper_mat = torch.cat([sigma_k * S_k_time_S_k, L_k], dim=1)  # 上部分 (n, 2n)
+    lower_mat = torch.cat([L_k.T, -torch.diag(D_k_diag)], dim=1)  # 下部分 (n, 2n)
+    mat = torch.cat([upper_mat, lower_mat], dim=0)  # 最终拼接 (2n, 2n)
+
+    mat_inv = torch.inverse(mat)  # (2n, 2n)
+    print("det:", torch.det(mat))
+
+    approx_prod = sigma_k * v  # 初始近似向量，(1, k)
+
+    p_mat = torch.cat([torch.matmul(curr_S_k, sigma_k * v.T), torch.matmul(curr_Y_k, v.T)], dim=0)  # (2n, 1)
+    approx_prod -= torch.mm(
+        torch.mm(torch.cat([sigma_k * curr_S_k.T, curr_Y_k.T], dim=1), mat_inv), p_mat
+    ).T  # 修正结果转置回 (1, k)
+
+    return approx_prod.squeeze(0)
+
+
+
+def fldetector_GapStatistics(score, nobyz):
+    nrefs = 10
+    ks = range(1, 8)
+    gaps = np.zeros(len(ks))
+    gapDiff = np.zeros(len(ks) - 1)
+    sdk = np.zeros(len(ks))
+    min = np.min(score)
+    max = np.max(score)
+    score = (score - min)/(max-min)
+    for i, k in enumerate(ks):
+        estimator = KMeans(n_clusters=k)
+        estimator.fit(score.reshape(-1, 1))
+        label_pred = estimator.labels_
+        center = estimator.cluster_centers_
+        Wk = np.sum([np.square(score[m]-center[label_pred[m]]) for m in range(len(score))])
+        WkRef = np.zeros(nrefs)
+        for j in range(nrefs):
+            rand = np.random.uniform(0, 1, len(score))
+            estimator = KMeans(n_clusters=k)
+            estimator.fit(rand.reshape(-1, 1))
+            label_pred = estimator.labels_
+            center = estimator.cluster_centers_
+            WkRef[j] = np.sum([np.square(rand[m]-center[label_pred[m]]) for m in range(len(rand))])
+        gaps[i] = np.log(np.mean(WkRef)) - np.log(Wk)
+        sdk[i] = np.sqrt((1.0 + nrefs) / nrefs) * np.std(np.log(WkRef))
+
+        if i > 0:
+            gapDiff[i - 1] = gaps[i - 1] - gaps[i] + sdk[i]
+    #print(gapDiff)
+    for i in range(len(gapDiff)):
+        if gapDiff[i] >= 0:
+            select_k = i+1
+            break
+    if select_k == 1:
+        print('No attack detected!')
+        return 0
+    else:
+        print('Attack Detected!')
+        return 1
+
+def fldetector_kmeans(score, nobyz):
+    estimator = KMeans(n_clusters=2)
+    estimator.fit(score.reshape(-1, 1))
+    label_pred = estimator.labels_
+    if np.mean(score[label_pred==0])<np.mean(score[label_pred==1]):
+        #0 is the label of malicious clients
+        label_pred = 1 - label_pred
+    # real_label=np.ones(100)
+    # real_label[:nobyz]=0
+    # acc=len(label_pred[label_pred==real_label])/100
+    # recall=1-np.sum(label_pred[:nobyz])/nobyz
+    # fpr=1-np.sum(label_pred[nobyz:])/(100-nobyz)
+    # fnr=np.sum(label_pred[:nobyz])/nobyz
+    # print("acc %0.4f; recall %0.4f; fpr %0.4f; fnr %0.4f;" % (acc, recall, fpr, fnr))
+    # print(silhouette_score(score.reshape(-1, 1), label_pred))
+    return label_pred # benign为1，恶意为0
+
+def fldetector(args, w_glob, w_updates, writer, iter):
+    record_flag = False
+    weight = parameters_dict_to_vector_flt(w_glob)
+    param_list = [parameters_dict_to_vector_flt(w_update) for w_update in w_updates]
+
+    if iter - args.start_defence > 3:
+        hvp = lbfgs(args.weight_record, args.grad_record, weight - args.last_weight, args.device)
+    else:
+        hvp = None
+
+    if hvp != None:
+        print("hvp:", hvp)
+        print("param_list", args.old_grad_list[0])
+        pred_grad = []
+        distance = []
+        for i in range(len(args.old_grad_list)):
+            pred_grad.append(args.old_grad_list[i] + hvp)
+        
+        distance = np.array([torch.norm(pred_grad[i]-param_list[i], p=2).item() for i in range(len(param_list))])
+        distance = distance / np.sum(distance)
+        args.malicious_score = np.row_stack((args.malicious_score, distance))
+    
+    label_pred = np.ones(args.num_users)
+    if args.malicious_score.shape[0] >= 11:
+        record_flag = True
+        if args.start_record_iter == None:
+            args.start_record_iter = iter
+        args.record_iter += 1
+        if fldetector_GapStatistics(np.sum(args.malicious_score[-10:], axis=0), args.num_users*args.malicious):
+            label_pred = fldetector_kmeans(np.sum(args.malicious_score[-10:], axis=0), args.num_users*args.malicious)
+    
+    benign_client = []
+    for idx, pred in enumerate(label_pred):
+        if pred == 1:
+            benign_client.append(idx)
+    if record_flag:
+        record_TNR_TPR(args, benign_client, writer, iter-(args.start_record_iter-args.start_defence)+1)
+    w_glob = no_defence_balance([w_updates[i] for i in benign_client], w_glob)
+    new_weight = parameters_dict_to_vector_flt(w_glob)
+    grad = new_weight - weight
+
+    if iter - args.start_defence > 1:
+        args.weight_record.append(weight-args.last_weight)
+        args.grad_record.append(grad-args.last_grad)
+    
+    if len(args.weight_record) > 10:
+        del args.weight_record[0]
+        del args.grad_record[0]
+    
+    args.last_weight = weight
+    args.last_grad = grad
+    args.old_grad_list = param_list
 
     return w_glob

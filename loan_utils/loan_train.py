@@ -55,8 +55,8 @@ class loan_LocalSeverUpdate():
         for iter in range(self.args.local_ep_b):
             batch_loss = []
             for batch_idx, (data, labels) in enumerate(self.ldr_train):
-                data, labels = data.to(
-                    self.args.device), labels.to(self.args.device)
+                data, labels = data.float().to(
+                    self.args.device), labels.long().to(self.args.device)
                 net.zero_grad()
                 log_probs = net(data)
                 loss = self.loss_func(log_probs, labels)

@@ -12,7 +12,7 @@ from models.Update import LocalUpdate
 from utils.info import print_exp_details, write_info_to_accfile, get_base_info
 from utils.options import args_parser
 from utils.sampling import homo, one_label_expert, dirichlet, label_num_noniid, quantity_noniid
-from utils.defense import fltrust, multi_krum, get_update, RLR, flame, multi_metrics, fl_defender, crowdguard, FoolsGold, flshield
+from utils.defense import fltrust, multi_krum, get_update, RLR, flame, multi_metrics, fl_defender, crowdguard, FoolsGold, flshield, fldetector
 from utils.semantic_backdoor import load_poisoned_dataset
 from utils.load_data import load_data
 import loan_utils.load_data
@@ -382,6 +382,14 @@ if __name__ == '__main__':
         args.nsum_fg = 0
         args.tn_fg = 0
         args.tp_fg = 0
+    if args.defence == "fldetector":
+        args.old_grad_list = []
+        args.weight_record = []
+        args.grad_record = []
+        args.last_weight = None
+        args.last_grad = None
+        args.malicious_score = np.zeros((1, args.num_users))
+        args.start_record_iter = None
 
     # if args.all_clients:
     #     print("Aggregation over all clients")
@@ -479,9 +487,11 @@ if __name__ == '__main__':
                     validate_users_id = idxs_users  # 此轮参与训练的所有客户端为验证者
                     w_glob = crowdguard(helper, validate_users_id, args, copy.deepcopy(net_glob), net_list, w_updates, dataset_train, dict_users, idxs_users, writer, writer_file_name, iter)
                 elif args.defence == 'foolsgold':
-                    w_glob = fg.score_gradients(copy.deepcopy(net_glob), net_list, idxs_users, w_updates, args, writer, iter, writer_file_name)
+                    w_glob = fg.score_gradients(helper, copy.deepcopy(net_glob), net_list, idxs_users, w_updates, args, writer, iter, writer_file_name)
                 elif args.defence == 'flshield':
                     w_glob = flshield(helper, args, copy.deepcopy(net_glob), w_updates, w_locals, idxs_users, iter, writer, writer_file_name, dict_users, dataset_train)
+                elif args.defence == 'fldetector':
+                    w_glob = fldetector(args, w_glob, w_updates, writer, iter)
                 else:
                     print("Wrong Defense Method")
                     os._exit(0)
