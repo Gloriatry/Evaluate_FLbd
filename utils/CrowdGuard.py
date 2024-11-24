@@ -84,7 +84,7 @@ def plot_HLBIM(args, file_name, dis_type, validator_idx, plot_round, iter, HLBIM
 
 class CrowdGuardClientValidation:
     @staticmethod
-    def __predict_for_single_model(model, local_data, device):
+    def __predict_for_single_model(model, local_data, device, dataset):
         """
         Returns
         - A matrix with Deep Layer Outputs with dimensions sample x layer x values.
@@ -99,6 +99,9 @@ class CrowdGuardClientValidation:
         number_of_previous_samples = 0
         for batch_id, batch in enumerate(local_data):
             data, target = batch
+            if dataset == 'loan':
+                data = data.float()
+                target = target.long()
             data, target = data.to(device), target.to(device)
             # TODO:补充模型记录输出的功能
             output = model.predict_internal_states(data)
@@ -133,7 +136,7 @@ class CrowdGuardClientValidation:
         return predictions, sample_label_list, num_layers
 
     @staticmethod
-    def __do_predictions(models, global_model, local_data, device):
+    def __do_predictions(models, global_model, local_data, device, dataset):
         """
         Returns
         - The Deep Layer Outputs for all models in a matrix of dimension
@@ -146,7 +149,7 @@ class CrowdGuardClientValidation:
         for model_index, model in enumerate(models):
             predictions, _, _ = CrowdGuardClientValidation.__predict_for_single_model(model,
                                                                                       local_data,
-                                                                                      device)
+                                                                                      device, dataset)
             for sample_index, layer_predictions_for_sample in enumerate(predictions):
                 if sample_index >= len(all_models_predictions):
                     assert model_index == 0
@@ -154,7 +157,7 @@ class CrowdGuardClientValidation:
                     all_models_predictions.append([])
                 all_models_predictions[sample_index].append(layer_predictions_for_sample)
         tmp = CrowdGuardClientValidation.__predict_for_single_model(global_model, local_data,
-                                                                    device)
+                                                                    device, dataset)
         global_model_predictions, sample_label_list, n_layers = tmp
         sample_indices_by_label = {}
         for s_i, label in enumerate(sample_label_list):
@@ -477,7 +480,7 @@ class CrowdGuardClientValidation:
         以一个验证者为单位
         '''
         print("validator now", own_client_index)
-        tmp = CrowdGuardClientValidation.__do_predictions(models, global_model, local_data, device)
+        tmp = CrowdGuardClientValidation.__do_predictions(models, global_model, local_data, device, args.dataset)
         prediction_matrix, global_model_predictions, sample_indices_by_label, num_layers = tmp
         distances_by_metric = {}
         for dist_type in [DistanceMetric.COSINE, DistanceMetric.EUCLIDEAN]:
