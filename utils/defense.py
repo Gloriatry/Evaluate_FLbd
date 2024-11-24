@@ -694,7 +694,7 @@ def crowdguard(helper, validate_users_id, args, global_model, all_models, update
     binary_votes = []
     for validator_id in validate_users_id: # global id
         if args.dataset == 'loan':
-            validator_id = helper.participants_list.index(validator_id)
+            validator_listid = helper.participants_list.index(validator_listid)
             validator_train_loader = helper.allStateHelperList[validator_id].get_trainloader()
         else:
             if args.gau_noise > 0:
@@ -1166,7 +1166,6 @@ def fldetector_kmeans(score, nobyz):
     return label_pred # benign为1，恶意为0
 
 def fldetector(args, w_glob, w_updates, writer, iter):
-    record_flag = False
     weight = parameters_dict_to_vector_flt(w_glob)
     param_list = [parameters_dict_to_vector_flt(w_update) for w_update in w_updates]
 
@@ -1189,10 +1188,8 @@ def fldetector(args, w_glob, w_updates, writer, iter):
     
     label_pred = np.ones(args.num_users)
     if args.malicious_score.shape[0] >= 11:
-        record_flag = True
         if args.start_record_iter == None:
             args.start_record_iter = iter
-        args.record_iter += 1
         if fldetector_GapStatistics(np.sum(args.malicious_score[-10:], axis=0), args.num_users*args.malicious):
             label_pred = fldetector_kmeans(np.sum(args.malicious_score[-10:], axis=0), args.num_users*args.malicious)
     
@@ -1200,7 +1197,7 @@ def fldetector(args, w_glob, w_updates, writer, iter):
     for idx, pred in enumerate(label_pred):
         if pred == 1:
             benign_client.append(idx)
-    if record_flag:
+    if args.start_record_iter != None:
         record_TNR_TPR(args, benign_client, writer, iter-(args.start_record_iter-args.start_defence)+1)
     w_glob = no_defence_balance([w_updates[i] for i in benign_client], w_glob)
     new_weight = parameters_dict_to_vector_flt(w_glob)

@@ -71,6 +71,9 @@ def validation_test_fun(helper, args, network, given_test_loader=None, is_poison
             #         data, targets = helper.get_batch(None, batch)
             # else:
             #     data, targets = helper.allStateHelperList[adv_index].get_batch(test_loader, batch, evaluation=True)
+            if args.dataset == 'loan':
+                data = data.float()
+                targets = targets.long()
             data, targets = data.to(device2), targets.to(device2)
             output = network(data)
             loss_func=torch.nn.CrossEntropyLoss(reduction='none')
