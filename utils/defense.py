@@ -694,8 +694,8 @@ def crowdguard(helper, validate_users_id, args, global_model, all_models, update
     binary_votes = []
     for validator_id in validate_users_id: # global id
         if args.dataset == 'loan':
-            validator_listid = helper.participants_list.index(validator_listid)
-            validator_train_loader = helper.allStateHelperList[validator_id].get_trainloader()
+            validator_listid = helper.participants_list.index(validator_id)
+            validator_train_loader = helper.allStateHelperList[validator_listid].get_trainloader()
         else:
             if args.gau_noise > 0:
                 noise_level = args.gau_noise / (args.num_users - 1) * validator_id
