@@ -278,7 +278,7 @@ if __name__ == '__main__':
             dataset_train = torch.utils.data.Subset(dataset_train, remaining_indices)
             print('poison train and test data of green car loaded')
 
-    if args.attack == 'dba' and args.dataset != 'loan':
+    if (args.attack == 'dba' or args.attack == 'badnet') and args.dataset != 'loan':
         if args.heter == "homo":
             # dict_users = np.load('./data/iid_cifar.npy', allow_pickle=True).item()
             dict_users = homo(dataset_train, args.num_users)
