@@ -1165,7 +1165,7 @@ def fldetector_kmeans(score, nobyz):
     # print(silhouette_score(score.reshape(-1, 1), label_pred))
     return label_pred # benign为1，恶意为0
 
-def fldetector(args, w_glob, w_updates, writer, iter):
+def fldetector(args, w_glob, w_updates, writer, iter, file_name):
     weight = parameters_dict_to_vector_flt(w_glob)
     param_list = [parameters_dict_to_vector_flt(w_update) for w_update in w_updates]
 
@@ -1190,8 +1190,16 @@ def fldetector(args, w_glob, w_updates, writer, iter):
     if args.malicious_score.shape[0] >= 11:
         if args.start_record_iter == None:
             args.start_record_iter = iter
-        if fldetector_GapStatistics(np.sum(args.malicious_score[-10:], axis=0), args.num_users*args.malicious):
-            label_pred = fldetector_kmeans(np.sum(args.malicious_score[-10:], axis=0), args.num_users*args.malicious)
+        # if fldetector_GapStatistics(np.sum(args.malicious_score[-10:], axis=0), args.num_users*args.malicious):
+        label_pred = fldetector_kmeans(np.sum(args.malicious_score[-10:], axis=0), args.num_users*args.malicious)
+        if iter % 100 == 1:
+            consistency_scores = np.sum(args.malicious_score[-10:], axis=0)
+            file_path = "/root/project/efiles/" + file_name
+            if not os.path.exists(file_path):    
+                os.makedirs(file_path)
+            with open(os.path.join(file_path, "consistency_scores.txt"), 'a') as f:
+                f.write(', '.join(map(str, consistency_scores.tolist()))+'\n')
+                f.close()
     
     benign_client = []
     for idx, pred in enumerate(label_pred):

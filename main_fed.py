@@ -96,7 +96,7 @@ if __name__ == '__main__':
     # print_exp_details(args)
     seed_experiment(args.seed)
     
-    writer_file_name = f"""model_bank:{args.model_bank}-scratch:{args.init is 'None'}-{args.dataset}-seed:{args.seed}"""\
+    writer_file_name = f"""model_bank:{args.model_bank}-scratch:{args.init == 'None'}-{args.dataset}-seed:{args.seed}"""\
             + f"""-{args.heter}-alpha:{args.alpha}-gau_noise:{args.gau_noise}"""\
             + f"""-{args.attack}-malicious:{args.malicious}-poi_frac:{args.poison_frac}"""\
             + f"""-lr_m:{args.lr_m}-lr_b:{args.lr_b}-ep_m:{args.local_ep_m}-ep_b:{args.local_ep_b}"""\
@@ -491,7 +491,7 @@ if __name__ == '__main__':
                 elif args.defence == 'flshield':
                     w_glob = flshield(helper, args, copy.deepcopy(net_glob), w_updates, w_locals, idxs_users, iter, writer, writer_file_name, dict_users, dataset_train)
                 elif args.defence == 'fldetector':
-                    w_glob = fldetector(args, w_glob, w_updates, writer, iter)
+                    w_glob = fldetector(args, w_glob, w_updates, writer, iter, writer_file_name)
                 else:
                     print("Wrong Defense Method")
                     os._exit(0)
