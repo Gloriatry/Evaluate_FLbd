@@ -98,10 +98,11 @@ class LocalMaliciousUpdate(object):
             # self.save_img(image)
             return image
         if self.trigger == 'square':
-            pixel_max = torch.max(image) if torch.max(image)>1 else 1
-            # 2022年6月10日 change
-            if self.dataset == 'cifar':
-                pixel_max = 1
+            # pixel_max = torch.max(image) if torch.max(image)>1 else 1
+            # # 2022年6月10日 change
+            # if self.dataset == 'cifar':
+            #     pixel_max = 1
+            pixel_max = 1
             image[:,self.triggerY:self.triggerY+5,self.triggerX:self.triggerX+5] = pixel_max
         elif self.trigger == 'pattern':
             pixel_max = torch.max(image) if torch.max(image)>1 else 1

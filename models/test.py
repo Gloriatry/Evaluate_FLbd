@@ -161,8 +161,8 @@ def add_trigger(args, image):
             save_img(image)
             return image
         if args.trigger == 'square':
-            pixel_max = torch.max(image) if torch.max(image)>1 else 1
-            
+            # pixel_max = torch.max(image) if torch.max(image)>1 else 1
+            pixel_max = 1
             image[:,args.triggerY:args.triggerY+5,args.triggerX:args.triggerX+5] = pixel_max
         elif args.trigger == 'pattern':
             pixel_max = torch.max(image) if torch.max(image)>1 else 1
