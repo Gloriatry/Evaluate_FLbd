@@ -12,7 +12,7 @@ from models.Update import LocalUpdate
 from utils.info import print_exp_details, write_info_to_accfile, get_base_info
 from utils.options import args_parser
 from utils.sampling import homo, one_label_expert, dirichlet, label_num_noniid, quantity_noniid
-from utils.defense import fltrust, multi_krum, get_update, RLR, flame, multi_metrics, fl_defender, crowdguard, FoolsGold, flshield, fldetector
+from utils.defense import fltrust, multi_krum, get_update, RLR, flame, multi_metrics, fl_defender, crowdguard, FoolsGold, flshield, fldetector, freqfed
 from utils.semantic_backdoor import load_poisoned_dataset
 from utils.load_data import load_data
 import loan_utils.load_data
@@ -492,6 +492,8 @@ if __name__ == '__main__':
                     w_glob = flshield(helper, args, copy.deepcopy(net_glob), w_updates, w_locals, idxs_users, iter, writer, writer_file_name, dict_users, dataset_train)
                 elif args.defence == 'fldetector':
                     w_glob = fldetector(args, w_glob, w_updates, writer, iter, writer_file_name)
+                elif args.defence == 'freqfed':
+                    w_glob = freqfed(args, w_locals, w_updates, w_glob, writer, iter, writer_file_name)
                 else:
                     print("Wrong Defense Method")
                     os._exit(0)

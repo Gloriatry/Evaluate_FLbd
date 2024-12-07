@@ -1224,3 +1224,86 @@ def fldetector(args, w_glob, w_updates, writer, iter, file_name):
     args.old_grad_list = param_list
 
     return w_glob
+
+def model_to_square_matrix(net_dict):
+    net_vector = parameters_dict_to_vector_flt(net_dict)
+    n = int(torch.ceil(torch.sqrt(torch.tensor(net_vector.size(0), dtype=torch.float32))))
+    square_matrix = torch.zeros((n, n), dtype=net_vector.dtype, device=net_vector.device)
+    square_matrix.view(-1)[:net_vector.size(0)] = net_vector
+
+    return square_matrix
+
+from scipy.fftpack import dct
+def freqfed(args, w_locals, w_updates, global_model, writer, iter, file_name):
+    dct_vectors = []
+
+    for net_dict in w_locals:
+        square_matrix = model_to_square_matrix(net_dict)
+        square_matrix_np = square_matrix.cpu().numpy()
+        dct_matrix_np = dct(dct(square_matrix_np.T, norm='ortho').T, norm='ortho')
+        dct_matrix_torch = torch.from_numpy(dct_matrix_np).to(args.device)
+
+        size = dct_matrix_torch.shape[0]
+        threshold = size // 2
+        low_freq_components = []
+
+        for i in range(threshold):
+            for j in range(threshold):
+                if i + j <= threshold:
+                    low_freq_components.append(dct_matrix_torch[i, j])
+        
+        dct_vectors.append(torch.tensor(low_freq_components))
+    
+    cos = torch.nn.CosineSimilarity(dim=0, eps=1e-6).to(args.device)
+    cos_list=[]
+    for i in range(len(dct_vectors)):
+        cos_i = []
+        for j in range(len(dct_vectors)):
+            cos_ij = 1- cos(dct_vectors[i],dct_vectors[j])
+            # cos_i.append(round(cos_ij.item(),4))
+            cos_i.append(cos_ij.item())
+        cos_list.append(cos_i)
+    
+    num_clients = max(int(args.frac * args.num_users), 1)
+    num_malicious_clients = int(args.malicious * num_clients)
+    num_benign_clients = num_clients - num_malicious_clients
+    clusterer = hdbscan.HDBSCAN(min_cluster_size=num_clients//2 + 1,min_samples=1,allow_single_cluster=True).fit(cos_list)
+    print(clusterer.labels_)
+    benign_client = []
+
+    max_num_in_cluster=0
+    max_cluster_index=0
+    if clusterer.labels_.max() < 0:
+        for i in range(len(w_locals)):
+            benign_client.append(i)
+    else:
+        for index_cluster in range(clusterer.labels_.max()+1):
+            if len(clusterer.labels_[clusterer.labels_==index_cluster]) > max_num_in_cluster:
+                max_cluster_index = index_cluster
+                max_num_in_cluster = len(clusterer.labels_[clusterer.labels_==index_cluster])
+        for i in range(len(clusterer.labels_)):
+            if clusterer.labels_[i] == max_cluster_index:
+                benign_client.append(i)
+    
+    record_TNR_TPR(args, benign_client, writer, iter)
+    
+    if iter > args.start_attack and iter % 100 == 0:
+        file_path = "/root/project/epics/" + file_name
+        if not os.path.exists(file_path):    
+            os.makedirs(file_path)
+        cos_proj = PCA(n_components=2).fit_transform(cos_list)
+        fig = plt.figure()
+        ax = fig.add_axes([0.2, 0.2, 0.6, 0.6])
+        color_map = ['r'] * num_malicious_clients + ['b'] * num_benign_clients
+        marker_map = ['o' if x >= 0 else '^' for x in clusterer.labels_]
+        for i in range(num_clients):
+            ax.scatter(cos_proj[i, 0], cos_proj[i, 1], c=color_map[i], marker=marker_map[i])
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_xlabel('PCA Axis 1', fontsize=17)
+        ax.set_ylabel('PCA Axis 2', fontsize=17)
+        plt.savefig(os.path.join(file_path, str(iter)+'.pdf'))
+
+    global_model = no_defence_balance([w_updates[i] for i in benign_client], global_model)
+
+    return global_model

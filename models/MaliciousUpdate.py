@@ -58,7 +58,7 @@ class LocalMaliciousUpdate(object):
                 dataset, _ = load_data(args.dataset, args.data_dir, idxs, noise_level)
             else:
                 dataset = DatasetSplit(dataset, idxs)
-        self.ldr_train = DataLoader(dataset, batch_size=self.args.local_bs, shuffle=True)
+            self.ldr_train = DataLoader(dataset, batch_size=self.args.local_bs, shuffle=True)
         #  change 0708
         self.data = DatasetSplit(dataset, idxs)
         
