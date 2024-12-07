@@ -154,13 +154,16 @@ def validation_test(helper, args, target_model, validator_id, dict_users=None, d
     else:
         # _, val_test_loader = helper.train_data[validator_idx]
         # val_test_loader = helper.val_data[validator_idx]
-        if args.gau_noise > 0:
-            noise_level = args.gau_noise / (args.num_users - 1) * validator_id
-            dataset, _ = load_data(args.dataset, args.data_dir, dict_users[validator_id], noise_level)
+        if args.attack == 'edges' and (validator_id < int(args.num_users * args.malicious)):
+            val_test_loader = DataLoader(args.poison_trainloader.dataset, batch_size=args.local_bs, shuffle=True)
         else:
-            dataset = DatasetSplit(dataset_train, dict_users[validator_id])
-        # print(dict_users[validator_id])
-        val_test_loader = DataLoader(dataset, batch_size=args.local_bs, shuffle=True)
+            if args.gau_noise > 0:
+                noise_level = args.gau_noise / (args.num_users - 1) * validator_id
+                dataset, _ = load_data(args.dataset, args.data_dir, dict_users[validator_id], noise_level)
+            else:
+                dataset = DatasetSplit(dataset_train, dict_users[validator_id])
+            # print(dict_users[validator_id])
+            val_test_loader = DataLoader(dataset, batch_size=args.local_bs, shuffle=True)
     # if validator_id in helper.adversarial_namelist:
     #     is_poisonous_validator = True
     # else:

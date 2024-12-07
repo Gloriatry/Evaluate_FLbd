@@ -297,7 +297,7 @@ if __name__ == '__main__':
     if args.attack == 'edges':
         if args.heter > "noniid-#label0" and args.heter <= "noniid-#label99":
             adv_num = int(args.num_users * args.malicious)
-            dict_users_o = label_num_noniid(args.heter, dataset_train, args.num_users-adv_num)
+            dict_users_o = label_num_noniid(args, args.heter, dataset_train, args.num_users-adv_num)
             dict_users = {i:np.ndarray(0,dtype=np.int64) for i in range(args.num_users)}
             for k, v in dict_users_o.items():
                 dict_users[k+adv_num] = v

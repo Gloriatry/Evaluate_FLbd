@@ -697,13 +697,16 @@ def crowdguard(helper, validate_users_id, args, global_model, all_models, update
             validator_listid = helper.participants_list.index(validator_id)
             validator_train_loader = helper.allStateHelperList[validator_listid].get_trainloader()
         else:
-            if args.gau_noise > 0:
-                noise_level = args.gau_noise / (args.num_users - 1) * validator_id
-                dataset, _ = load_data(args.dataset, args.data_dir, dict_users[validator_id], noise_level)
+            if args.attack == 'edges' and (validator_id < int(args.num_users * args.malicious)):
+                validator_train_loader = DataLoader(args.poison_trainloader.dataset, batch_size=args.local_bs, shuffle=True)
             else:
-                dataset = DatasetSplit(dataset_train, dict_users[validator_id])
-            
-            validator_train_loader = DataLoader(dataset, batch_size=args.local_bs, shuffle=True)
+                if args.gau_noise > 0:
+                    noise_level = args.gau_noise / (args.num_users - 1) * validator_id
+                    dataset, _ = load_data(args.dataset, args.data_dir, dict_users[validator_id], noise_level)
+                else:
+                    dataset = DatasetSplit(dataset_train, dict_users[validator_id])
+                
+                validator_train_loader = DataLoader(dataset, batch_size=args.local_bs, shuffle=True)
         
         detected_suspicious_models = CrowdGuardClientValidation.validate_models(global_model,
                                                                                 all_models,
