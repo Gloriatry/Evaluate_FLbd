@@ -394,11 +394,14 @@ if __name__ == '__main__':
     # if args.all_clients:
     #     print("Aggregation over all clients")
     #     w_locals = [w_glob for i in range(args.num_users)]
-    if args.dataset != 'loan':
-        adversaries = list(np.random.choice(range(args.num_users), int(args.num_users * args.malicious), replace=False))
+    if args.attack == 'edges': # 若是edges攻击，则直接前若干个为攻击者
+        adversaries = [x for x in range(int(args.num_users * args.malicious))]
     else:
-        helper.adversarial_namelist = random.sample(helper.participants_list, int(args.num_users * args.malicious))
-        helper.benign_namelist = [x for x in helper.participants_list if x not in helper.adversarial_namelist]
+        if args.dataset != 'loan':
+            adversaries = list(np.random.choice(range(args.num_users), int(args.num_users * args.malicious), replace=False))
+        else:
+            helper.adversarial_namelist = random.sample(helper.participants_list, int(args.num_users * args.malicious))
+            helper.benign_namelist = [x for x in helper.participants_list if x not in helper.adversarial_namelist]
     for iter in range(start_epoch, args.epochs):
         loss_locals = []
         w_locals = []
