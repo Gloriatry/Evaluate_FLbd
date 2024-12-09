@@ -1195,7 +1195,7 @@ def fldetector(args, w_glob, w_updates, writer, iter, file_name):
             args.start_record_iter = iter
         # if fldetector_GapStatistics(np.sum(args.malicious_score[-10:], axis=0), args.num_users*args.malicious):
         label_pred = fldetector_kmeans(np.sum(args.malicious_score[-10:], axis=0), args.num_users*args.malicious)
-        if iter % 100 == 1:
+        if iter % 30 == 1:
             consistency_scores = np.sum(args.malicious_score[-10:], axis=0)
             file_path = "/root/project/efiles/" + file_name
             if not os.path.exists(file_path):    
