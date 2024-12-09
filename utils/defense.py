@@ -1008,7 +1008,7 @@ def flshield(helper, args, global_model, update_params, w_locals, idxs_users, it
             for k in range(args.class_num):
                 eval_tensor[i][j][k] = evaluations_of_clusters[j][idxs_users[i]][k]/count_of_class_for_validator[idxs_users[i]][k] if count_of_class_for_validator[idxs_users[i]][k] !=0 else 0
     val_rep_res, _ = torch.min(eval_tensor, dim=2)
-    if iter % 100 == 1:
+    if iter % 30 == 1:
         for val_idx in range(val_rep_res.shape[0]):
             val_res = val_rep_res[val_idx]
             # plot eacj validator's result
@@ -1290,7 +1290,7 @@ def freqfed(args, w_locals, w_updates, global_model, writer, iter, file_name):
     
     record_TNR_TPR(args, benign_client, writer, iter)
     
-    if iter > args.start_attack and iter % 100 == 0:
+    if iter > args.start_attack and iter % 100 == 1:
         file_path = "/root/project/epics/" + file_name
         if not os.path.exists(file_path):    
             os.makedirs(file_path)

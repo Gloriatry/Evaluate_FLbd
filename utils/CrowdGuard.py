@@ -347,7 +347,7 @@ class CrowdGuardClientValidation:
                     cluster_input.append([pca_one_value])
                     cluster_input_plain.append(pca_one_value)
                 
-                if iter % 100 == 1:
+                if iter % 30 == 1:
                     plot_HLBIM(args, file_name, distance_type, own_client_index, plotround, iter, cluster_input_plain[:-1], pruned_client_indices)
                     plotround += 1
 
