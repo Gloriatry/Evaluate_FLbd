@@ -1172,7 +1172,7 @@ def fldetector(args, w_glob, w_updates, writer, iter, file_name):
     weight = parameters_dict_to_vector_flt(w_glob)
     param_list = [parameters_dict_to_vector_flt(w_update) for w_update in w_updates]
 
-    if iter - args.start_defence > 3:
+    if iter - args.start_defence > 20:
         hvp = lbfgs(args.weight_record, args.grad_record, weight - args.last_weight, args.device)
     else:
         hvp = None
