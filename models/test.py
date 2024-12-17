@@ -10,6 +10,7 @@ from skimage import io
 import cv2
 from skimage import img_as_ubyte
 import numpy as np
+from utils.semantic_backdoor import load_poisoned_dataset
 def test_img(net_g, datatest, args, test_backdoor=False):
     args.watermark = None
     args.apple = None
@@ -105,7 +106,13 @@ def Mytest_poison(net_g, datatest, args):
 
 def Mytest_edge_test(net_g, args):
     net_g.eval()
-    data_loader = args.poison_testloader
+    if args.dataset == 'cifar':
+        _, _, poison_testloader, _, _ = load_poisoned_dataset(dataset = args.dataset, fraction = 1, batch_size = args.local_bs, test_batch_size = args.bs, poison_type='southwest', attack_case='edge-case', edge_split = 0.5, poison_num=args.edges_poison_num)
+        print('poison train and test data from southwest loaded')
+    elif args.dataset == 'emnist' or args.dataset == 'mnist':
+        _, _, poison_testloader, _, _ = load_poisoned_dataset(dataset = args.dataset, fraction = 1, batch_size = args.local_bs, test_batch_size = args.bs, poison_type='ardis')
+        print('poison train and test data from ARDIS loaded')
+    data_loader = poison_testloader
     l = len(data_loader)
     back_correct = 0
     for idx, (data, target) in enumerate(data_loader):

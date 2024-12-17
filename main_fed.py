@@ -243,13 +243,13 @@ if __name__ == '__main__':
     else:
         args.class_num = 10
 
-    if args.attack == "edges":
-        if args.dataset == 'cifar':
-            args.poison_trainloader, _, args.poison_testloader, _, args.clean_val_loader = load_poisoned_dataset(dataset = args.dataset, fraction = 1, batch_size = args.local_bs, test_batch_size = args.bs, poison_type='southwest', attack_case='edge-case', edge_split = 0.5)
-            print('poison train and test data from southwest loaded')
-        elif args.dataset == 'emnist':
-            args.poison_trainloader, _, args.poison_testloader, _, _ = load_poisoned_dataset(dataset = args.dataset, fraction = 1, batch_size = args.local_bs, test_batch_size = args.bs, poison_type='ardis')
-            print('poison train and test data from ARDIS loaded')
+    # if args.attack == "edges":
+    #     if args.dataset == 'cifar':
+    #         args.poison_trainloader, _, args.poison_testloader, _, args.clean_val_loader = load_poisoned_dataset(dataset = args.dataset, fraction = 1, batch_size = args.local_bs, test_batch_size = args.bs, poison_type='southwest', attack_case='edge-case', edge_split = 0.5)
+    #         print('poison train and test data from southwest loaded')
+    #     elif args.dataset == 'emnist':
+    #         args.poison_trainloader, _, args.poison_testloader, _, _ = load_poisoned_dataset(dataset = args.dataset, fraction = 1, batch_size = args.local_bs, test_batch_size = args.bs, poison_type='ardis')
+    #         print('poison train and test data from ARDIS loaded')
     
     if args.attack == "semantic":
         if args.dataset == 'cifar':
@@ -301,6 +301,7 @@ if __name__ == '__main__':
             dict_users = {i:np.ndarray(0,dtype=np.int64) for i in range(args.num_users)}
             for k, v in dict_users_o.items():
                 dict_users[k+adv_num] = v
+        args.edges_poison_num = len(dict_users[args.num_users-1])
 
     # img_size = dataset_train[0][0].shape
 

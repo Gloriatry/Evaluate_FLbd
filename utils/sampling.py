@@ -297,7 +297,7 @@ def label_num_noniid(args, heter, dataset_train, n_parties):
     data_classes = {}
     for ind, x in enumerate(dataset_train):
         _, label = x
-        if args.dataset == 'emnist':
+        if args.dataset == 'emnist' or args.dataset == 'mnist':
             label = label.item()
         if label in data_classes:
             data_classes[label].append(ind)

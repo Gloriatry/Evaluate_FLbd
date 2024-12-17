@@ -20,6 +20,7 @@ import os
 # print(os.getcwd())
 from models.Attacker import get_attack_layers_no_acc
 from utils.load_data import load_data
+from utils.semantic_backdoor import load_poisoned_dataset
 
 class DatasetSplit(Dataset):
     def __init__(self, dataset, idxs):
@@ -41,7 +42,13 @@ class LocalMaliciousUpdate(object):
         self.selected_clients = []
         if args.attack == "edges":
             # own_dataset = self.ldr_train.dataset
-            edge_dataset = self.args.poison_trainloader.dataset
+            if args.dataset == 'cifar':
+                poison_trainloader, _, _, _, _ = load_poisoned_dataset(dataset = args.dataset, fraction = 1, batch_size = args.local_bs, test_batch_size = args.bs, poison_type='southwest', attack_case='edge-case', edge_split = 0.5, poison_num=args.edges_poison_num)
+                print('poison train and test data from southwest loaded')
+            elif args.dataset == 'emnist' or args.dataset == 'mnist':
+                poison_trainloader, _, _, _, _ = load_poisoned_dataset(dataset = args.dataset, fraction = 1, batch_size = args.local_bs, test_batch_size = args.bs, poison_type='ardis')
+                print('poison train and test data from ARDIS loaded')
+            edge_dataset = poison_trainloader.dataset
             self.ldr_train = torch.utils.data.DataLoader(
                             # torch.utils.data.ConcatDataset([own_dataset, edge_dataset]),
                             edge_dataset,

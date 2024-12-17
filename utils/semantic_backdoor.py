@@ -142,7 +142,8 @@ def load_poisoned_dataset(*args, **kwaargs):
 
             # downsample the poisoned dataset #################
             if attack_case == "edge-case":
-                num_sampled_poisoned_data_points = int((1-edge_split) * saved_southwest_dataset_train.shape[0])
+                # num_sampled_poisoned_data_points = int((1-edge_split) * saved_southwest_dataset_train.shape[0])
+                num_sampled_poisoned_data_points = kwaargs['poison_num']
                 samped_poisoned_data_indices = np.random.choice(saved_southwest_dataset_train.shape[0],
                                                                 num_sampled_poisoned_data_points,
                                                                 replace=False)
