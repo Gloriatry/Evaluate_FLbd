@@ -16,6 +16,7 @@ from sklearn.metrics import silhouette_score
 from torch.utils.data import DataLoader, Dataset
 from utils.CrowdGuard import CrowdGuardClientValidation
 from utils.load_data import load_data
+from utils.semantic_backdoor import load_poisoned_dataset
 from flshield_utils.cluster_grads import cluster_grads as cluster_function
 from flshield_utils.validation_test import validation_test
 from flshield_utils.impute_validation import impute_validation
@@ -698,7 +699,8 @@ def crowdguard(helper, validate_users_id, args, global_model, all_models, update
             validator_train_loader = helper.allStateHelperList[validator_listid].get_trainloader()
         else:
             if args.attack == 'edges' and (validator_id < int(args.num_users * args.malicious)):
-                validator_train_loader = DataLoader(args.poison_trainloader.dataset, batch_size=args.local_bs, shuffle=True)
+                poison_trainloader, _, _, _, _ = load_poisoned_dataset(dataset = args.dataset, fraction = 1, batch_size = args.local_bs, test_batch_size = args.bs, poison_type='southwest', attack_case='edge-case', edge_split = 0.5, poison_num=args.edges_poison_num)
+                validator_train_loader = DataLoader(poison_trainloader.dataset, batch_size=args.local_bs, shuffle=True)
             else:
                 if args.gau_noise > 0:
                     noise_level = args.gau_noise / (args.num_users - 1) * validator_id
@@ -1290,7 +1292,7 @@ def freqfed(args, w_locals, w_updates, global_model, writer, iter, file_name):
     
     record_TNR_TPR(args, benign_client, writer, iter)
     
-    if iter > args.start_attack and iter % 100 == 1:
+    if iter > args.start_attack and iter % 30 == 1:
         file_path = "/root/project/epics/" + file_name
         if not os.path.exists(file_path):    
             os.makedirs(file_path)

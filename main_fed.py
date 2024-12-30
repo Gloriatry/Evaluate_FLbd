@@ -14,7 +14,7 @@ from utils.options import args_parser
 from utils.sampling import homo, one_label_expert, dirichlet, label_num_noniid, quantity_noniid
 from utils.defense import fltrust, multi_krum, get_update, RLR, flame, multi_metrics, fl_defender, crowdguard, FoolsGold, flshield, fldetector, freqfed
 from utils.semantic_backdoor import load_poisoned_dataset
-from utils.load_data import load_data
+from utils.load_data import load_data, load_partition_femnist
 import loan_utils.load_data
 from loan_utils.loan_train import loan_LocalMaliciousUpdate, loan_LocalUpdate, loan_LocalSeverUpdate
 from loan_utils.loan_test import loan_Mytest, loan_Mytest_poison
@@ -229,6 +229,12 @@ if __name__ == '__main__':
         print("record#", data_num)
         dict_users = None
         dataset_train = None
+    elif args.dataset == 'femnist':
+        helper = None
+        data_dir = '../project/data/'
+        args.data_dir = data_dir+args.dataset
+        dataset_train, dataset_test, dict_users = load_partition_femnist(args.data_dir, args.num_users)
+        print(len(dataset_test), len(dataset_train))
     else:
         helper = None
         data_dir = '../project/data/'
@@ -278,7 +284,7 @@ if __name__ == '__main__':
             dataset_train = torch.utils.data.Subset(dataset_train, remaining_indices)
             print('poison train and test data of green car loaded')
 
-    if (args.attack == 'dba' or args.attack == 'badnet') and args.dataset != 'loan':
+    if (args.attack == 'dba' or args.attack == 'badnet') and args.dataset != 'loan' and args.dataset != 'femnist':
         if args.heter == "homo":
             # dict_users = np.load('./data/iid_cifar.npy', allow_pickle=True).item()
             dict_users = homo(dataset_train, args.num_users)
@@ -317,7 +323,7 @@ if __name__ == '__main__':
 
     if args.dataset == 'cifar' or args.dataset == 'tinyimagenet' or args.dataset == 'cinic':
         net_glob = ResNet18().to(args.device)
-    elif args.dataset == 'emnist' or args.dataset == 'mnist':
+    elif args.dataset == 'emnist' or args.dataset == 'mnist' or args.dataset == 'femnist':
         net_glob = MnistNet().to(args.device)
     elif args.dataset == 'loan':
         net_glob = LoanNet().to(args.device)

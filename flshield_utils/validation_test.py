@@ -5,6 +5,7 @@ import sys
 sys.path.append('../')
 from torch.utils.data import DataLoader, Dataset
 from utils.load_data import load_data
+from utils.semantic_backdoor import load_poisoned_dataset
 
 import time
 
@@ -155,7 +156,8 @@ def validation_test(helper, args, target_model, validator_id, dict_users=None, d
         # _, val_test_loader = helper.train_data[validator_idx]
         # val_test_loader = helper.val_data[validator_idx]
         if args.attack == 'edges' and (validator_id < int(args.num_users * args.malicious)):
-            val_test_loader = DataLoader(args.poison_trainloader.dataset, batch_size=args.local_bs, shuffle=True)
+            poison_trainloader, _, _, _, _ = load_poisoned_dataset(dataset = args.dataset, fraction = 1, batch_size = args.local_bs, test_batch_size = args.bs, poison_type='southwest', attack_case='edge-case', edge_split = 0.5, poison_num=args.edges_poison_num)
+            val_test_loader = DataLoader(poison_trainloader.dataset, batch_size=args.local_bs, shuffle=True)
         else:
             if args.gau_noise > 0:
                 noise_level = args.gau_noise / (args.num_users - 1) * validator_id
